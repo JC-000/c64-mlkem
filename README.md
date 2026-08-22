@@ -12,20 +12,28 @@ hybrid `X25519MLKEM768` (0x11EC) key exchange for
 
 ---
 
-## Status: Phase 1, scaffold complete
+## Status: Phase 1 complete (v0.3.0)
 
 The work is phased. **Phase 1 is Keccak only** — the SHA-3 family that ML-KEM
 is built on:
 
 | Phase | Scope | State |
 |---|---|---|
-| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **functionally complete** — permutation + sponge, all four functions KAT-verified; optimisation pass next |
-| P2 | NTT / mod-3329 arithmetic, samplers, keygen/encaps/decaps vs NIST ACVP | not started |
+| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
+| P2 | NTT / mod-3329 arithmetic, samplers, keygen/encaps/decaps vs NIST ACVP | not started — gated on P1's numbers |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
-P1 is the gating unknown: **no 6502 Keccak implementation exists anywhere** to
-calibrate against. Its measured cost replaces an estimate band of 150k–350k
-cycles per permutation that the whole PQC roadmap's wall-clock model rests on.
+P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
+to calibrate against, so the roadmap's wall-clock model rested on an estimate
+band of 150k–350k cycles per permutation. That estimate has now been replaced
+by a measurement, and **it did not survive** — see below.
+
+### Release history
+
+| Tag | Keccak-f[1600] | Resident | What it is |
+|---|---:|---:|---|
+| [`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) | 600,771 | 1,034 B | Functional baseline. Correct and complete, deliberately unoptimised — kept as the historical reference point. |
+| [`v0.3.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.3.0) | **456,605** | 1,477 B | rho+pi optimised: −24.0% cycles for +402 B. |
 
 ### Measured cycles per Keccak-f[1600]
 

@@ -10,16 +10,20 @@ gated on P1's measured cycle count and starting from its own handoff. No
 changes to `c64-https` (consumer wiring is Phase 4, consumer-side). No ML-DSA
 ever. No REU anywhere in P1.
 
-## The four numbers P1 owes
+## The four numbers P1 owed — all in hand as of v0.3.0
 
-1. measured cycles per Keccak-f[1600] permutation
-2. code+rodata+bss bytes per the ld65 map file
-3. KAT pass counts per function
-4. SPEC divergences and surprises
+1. **Keccak-f[1600] = 456,605 cycles** (19,025/round). Was 600,771 before the
+   rho+pi pass; `v0.2.0` preserves that baseline.
+2. **1,477 B resident** (1,169 code + 308 rodata), 594 B BSS. 48.1% of the
+   ~3 KB budget.
+3. **820 NIST CAVP ShortMsg vectors** across the four functions, plus 199
+   per-step differential checks and the streaming properties. All pass.
+4. **Five SPEC divergences**, tabulated in README.
 
-They feed a 40–70M-cycle keygen+decaps budget (Keccak's share estimated at
-9–21M over ~55–60 permutations), and they decide whether P2 proceeds as
-planned. Report them prominently.
+**The headline is bad news and must not be softened:** the measurement is
+1.3x the TOP of the roadmap's 150k–350k estimate band. Keccak alone is
+25–27M cycles for keygen+decaps against a 40–70M total budget. Any planning
+figure derived from the old estimate is void.
 
 ## Toolchain traps
 
@@ -39,6 +43,16 @@ planned. Report them prominently.
 - **bss-type segments stay last** in a file-emitting area. Mid-area, ld65 emits
   a shorter image and everything after the hole loads at the wrong address —
   measured at 9,154 bytes of displacement, silent.
+- **ld65 aligns an object's ENTIRE segment fragment** to the largest alignment
+  requested anywhere inside it. A variable declared *before* an `.align 256`
+  therefore still lands after that alignment AND pushes the aligned buffer to
+  the next page. Cost 253 B of BSS here before it was spotted. Put aligned
+  buffers first, odd bytes last.
+- **`jmp (abs)` fetches the high byte from the same page as the low one.** A
+  vector whose low byte is `$FF` reads garbage. `kc_jmp` carries a link-time
+  assert against exactly that.
+- **Branch displacement is 8-bit.** Both `keccak_rhopi`'s lane loop and any
+  other long body need `beq :+ / jmp target` instead of a plain `bne`.
 
 ## Contract obligations that bind file layout
 
@@ -78,7 +92,18 @@ those are exactly what ML-KEM needs.
 When adding 6502 step functions, keep them individually callable behind
 `MLKEM_TEST_HOOKS` so the per-step differential harness can reach them. The
 shipped archive never defines that switch, so the export surface — which §6.5
-makes contract surface — stays minimal and stable.
+makes contract surface — stays minimal and stable. `make` and `make lib` build
+from two separate object trees (`build/tobj` and `build/obj`) precisely so the
+two configurations cannot leak into each other; §6.4 requires it.
+
+That harness is not decoration. It caught `keccak_clear` clearing exactly one
+byte (counting down from 199 with `bpl`, whose bit 7 is already set) on the
+first run, and it is what made the rho+pi rewrite safe to attempt — a wrong
+step names its round and its step mapping instead of producing a wrong digest.
+
+`src/keccak_tables.inc` is GENERATED (`make tables`). Never hand-edit it: the
+round constants, pi destinations and rho decomposition all come from the
+validated model, so a transcription slip is impossible by construction.
 
 ## Tests
 
@@ -98,9 +123,27 @@ makes contract surface — stays minimal and stable.
 
 `src/bench.s` chains CIA1 Timer A + B into a 32-bit φ2 cycle counter. The jiffy
 clock is useless here: it is advanced by the KERNAL IRQ, so a body that runs
-with IRQs masked reports 0, and a jiffy is ~17,045 cycles anyway. **Calibrate
-against `bench_spin_1000` (1,287 cycles) before trusting any Keccak number** —
-the "TB tick = 65,536 cycles" relationship is an arithmetic claim about CIA
-underflow behaviour, not yet a measured one. VICE is cycle-deterministic, so a
-repeated run must reproduce exactly; a varying count means the measurement is
-wrong, not the emulator.
+with IRQs masked reports 0, and a jiffy is ~17,045 cycles anyway.
+
+`make bench` calibrates against `bench_spin_1000` (1,293 cycles including its
+`jsr`) and **refuses to print a Keccak number if calibration is off**. Do not
+weaken that gate — it is what turns "TB ticks every 65,536 TA cycles" from an
+arithmetic claim about CIA underflow into a measured one.
+
+**Two traps that produced plausible-but-wrong numbers here.** Both are fixed;
+both will come back if the harness is rewritten:
+
+1. **DEN is sampled once per frame.** The VIC-II checks display-enable only at
+   raster line `$30`, so `vic_blank` mid-frame leaves badline DMA running for
+   the rest of that frame. Whether a short window gets stolen from then depends
+   on *what ran before*, not on the code being measured — one identical
+   1,293-cycle routine measured 1293 / 1310 / 1396 / 1439. `bench_sync_frame`
+   waits two full frames after blanking, which also aligns the window start to
+   a known raster position. Blanking alone is NOT sufficient.
+2. **The first sample differs from the steady state.** Discard a warm-up
+   measurement.
+
+VICE is cycle-deterministic, so a repeated run must reproduce exactly; a
+varying count means the measurement is wrong, not the emulator. Useful
+independent check: the sponge overhead measures exactly 3,850 cycles/block both
+before and after the rho+pi work, code the optimisation never touched.
