@@ -87,9 +87,18 @@ def measure(transport, labels, target=None, repeat=1, blank=True):
     return int.from_bytes(raw, "little")
 
 
-def measure_stable(transport, labels, target=None, repeat=1, tries=3, blank=True):
-    """Measure repeatedly; VICE is deterministic so all runs must agree."""
-    vals = [measure(transport, labels, target, repeat, blank) for _ in range(tries)]
+def measure_stable(transport, labels, target=None, repeat=1, tries=3, blank=True,
+                   setup=None):
+    """Measure repeatedly; VICE is deterministic so all runs must agree.
+
+    `setup` runs before each measurement and OUTSIDE the timed window, for
+    cases that need the machine put back into a known state first.
+    """
+    vals = []
+    for _ in range(tries):
+        if setup:
+            setup()
+        vals.append(measure(transport, labels, target, repeat, blank))
     return vals[0], len(set(vals)) == 1, vals
 
 
@@ -170,6 +179,28 @@ def main():
             print(f"  {name:7} {net:7,} cycles/round  {net*24:9,} total  "
                   f"{100.0*net/tot:5.1f}%   {'' if st else 'UNSTABLE'}")
         print(f"  {'sum':7} {tot:7,} cycles/round  {tot*24:9,} total")
+
+        # --- what the sponge costs on top of the permutation ---------------
+        # One full SHA3-256 rate block (136 B) absorbed in one call runs
+        # exactly one permutation, so the excess over `one` is the sponge's
+        # own per-block overhead: the XOR-into-state loop plus bookkeeping.
+        print("\nSponge overhead")
+        write_bytes(transport, 0x2000, bytes(136))
+
+        def reinit():
+            jsr(transport, labels["mlkem_sha3_256_init"])
+            write_bytes(transport, labels["mlkem_zp_src"], bytes([0x00, 0x20]))
+            write_bytes(transport, labels["mlkem_sponge_len"], bytes([136, 0]))
+
+        blk, stable_b, vals_b = measure_stable(transport, labels, "mlkem_absorb",
+                                               setup=reinit)
+        blk -= overhead
+        print(f"  absorb of one 136-byte rate block : {blk:,} cycles"
+              f"   {'stable' if stable_b else 'UNSTABLE ' + str(vals_b)}")
+        print(f"  of which the permutation          : {one:,}")
+        print(f"  sponge overhead per rate block    : {blk - one:,} cycles "
+              f"({100.0 * (blk - one) / blk:.1f}%)")
+        print(f"  => ~{(blk) / 136:,.0f} cycles per byte hashed")
 
         mgr.release(inst)
 

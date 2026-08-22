@@ -22,23 +22,23 @@
 ; Refreshed from the ld65 map file at the end of every phase
 ; (`make check-manifest`, which FAILS if a value is below measured).
 ;
-; P1 Phase 1 measurement — Keccak-f[1600] permutation, compact/looped form:
-;   LIB_MLKEM_CODE    484 B   (theta, rho+pi, chi, iota, the round driver)
+; P1 measurement — Keccak-f[1600] (compact/looped) + the FIPS 202 sponge:
+;   LIB_MLKEM_CODE    767 B   (484 permutation + 283 sponge/SHA-3/SHAKE)
 ;   LIB_MLKEM_RODATA  267 B   (192 B round constants + 3 x 25 B rho/pi tables)
 ;   ------------------------
-;   resident          751 B   -> declared 768 (next 256-B boundary)
-; Against the P1 budget of ~3 KB code+rodata that is 24.4% — the sponge layer
-; and its four rate/suffix wrappers land in the remaining headroom.
+;   resident         1034 B   -> declared 1280 (next 256-B boundary)
+; That is 33.7% of the ~3 KB P1 budget, so ~2 KB is still unspent — enough to
+; pay for the rho+pi size-for-speed trades the README describes.
 ;
-; LIB_MLKEM_BSS is 584 B (200 state + 56 alignment pad + 200 rho+pi
-; destination + 120 theta scratch + 8 lane scratch). BSS is not a footprint
-; equate; consumers size it from the segment itself.
+; LIB_MLKEM_BSS is 591 B (200 state + 56 alignment pad + 200 rho+pi
+; destination + 120 theta scratch + 8 lane scratch + 7 sponge context). BSS is
+; not a footprint equate; consumers size it from the segment itself.
 ; =============================================================================
 
 ; --- §5 required four ---------------------------------------------------
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
-LIB_MLKEM_RESIDENT_BYTES = 768
+LIB_MLKEM_RESIDENT_BYTES = 1280
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).
 ; Pairs with RESIDENT_BYTES per §6.6 — COLD is reclaimable-after-init and may

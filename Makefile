@@ -77,10 +77,11 @@ TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 #     bench.s      measurement harness, not library surface
 #     zp_config.s  §6.2 consumer-assembled ZP model: no archive TU defines a
 #                  slot; the consumer assembles src/zp_config.s themselves
-LIB_SRCS = lib_version lib_manifest state keccak
+LIB_SRCS = lib_version lib_manifest state keccak sponge
 
-# The narrowed `lib-keccak` member set. Identical to LIB_SRCS today; they
-# diverge in Phase 2 when the sponge layer lands as its own TU.
+# The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge).
+# Identical to LIB_SRCS today because FIPS 202 is all P1 ships; they diverge in
+# P2, when `lib` grows the ML-KEM layer and this target stays FIPS-202-only.
 KECCAK_SRCS = $(LIB_SRCS)
 
 # Driver-side sources: standalone PRG only.
@@ -95,7 +96,7 @@ LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS))
 ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
-.PHONY: all clean test test-ref test-vice bench tables lib lib-keccak \
+.PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full bench tables lib lib-keccak \
         check-manifest check-archives vectors help
 
 all: $(PRG)
@@ -188,8 +189,17 @@ test-ref: vectors
 test-vice: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_keccak.py
 
-# Full suite: oracle self-test, the VICE differential trace, contract checks.
-test: test-ref test-vice check-archives
+# FIPS 202 KATs for the sponge layer: NIST CAVP vectors plus the streaming
+# properties no published vector covers. --full runs all 820 ShortMsg vectors.
+test-sha3: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sha3.py
+
+test-sha3-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sha3.py --full
+
+# Full suite: oracle self-test, the VICE differential trace, the KATs,
+# contract checks.
+test: test-ref test-vice test-sha3 check-archives
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -214,6 +224,7 @@ help:
 	@echo "make test         full suite (test-ref + contract checks)"
 	@echo "make test-ref     oracle self-test (Python only, no VICE)"
 	@echo "make test-vice    per-step differential trace under VICE"
+	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make tables       regenerate src/keccak_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"

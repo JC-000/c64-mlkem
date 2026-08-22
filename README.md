@@ -19,7 +19,7 @@ is built on:
 
 | Phase | Scope | State |
 |---|---|---|
-| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **in progress** — permutation done, verified and measured; sponge layer next |
+| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **functionally complete** — permutation + sponge, all four functions KAT-verified; optimisation pass next |
 | P2 | NTT / mod-3329 arithmetic, samplers, keygen/encaps/decaps vs NIST ACVP | not started |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
@@ -29,9 +29,18 @@ cycles per permutation that the whole PQC roadmap's wall-clock model rests on.
 
 ### Measured cycles per Keccak-f[1600]
 
-> ## 600,746 cycles
+> ## ~600,771 cycles
 >
-> 25,031 cycles/round · 587 ms at 1.023 MHz · compact/looped form, display blanked.
+> 25,032 cycles/round · 587 ms at 1.023 MHz · compact/looped form, display blanked.
+
+The count is exact and repeatable *within* a build, but shifts by a few tens of
+cycles *between* builds: `iota` does 192 `lda keccak_rc,x` reads per
+permutation, and how many of those cross a page depends on where the linker
+placed the round-constant table. Moving the table from `$0A7E` to `$0BAB` (the
+sponge growing `LIB_MLKEM_CODE`) changed the crossing count from 62 to 107.
+Page-aligning the RC table would make the headline figure build-invariant; it
+is on the optimisation list rather than done here, so this checkpoint stays a
+faithful record of the unoptimised form.
 
 **This is 1.7x the top of the roadmap's 150,000–350,000 estimate band.** At
 ~55–60 permutations for ML-KEM-768 keygen+decaps that is **33–36M cycles of
@@ -73,18 +82,30 @@ byte. Two changes are available without touching the other steps:
    disappears entirely if the eight possible byte-rotations are unrolled with
    constant offsets.
 
-Both are size-for-speed trades against the ~2.3 KB of budget still unspent.
+3. **Page-align the round-constant table**, removing the build-to-build
+   variation described above (and ~100 cycles with it).
+
+Trades 1 and 2 are size-for-speed against the ~2 KB of budget still unspent.
+
+### What the sponge costs
+
+Absorbing one full 136-byte rate block takes **604,621 cycles**, of which
+600,771 is the permutation — so the whole sponge layer (XOR-into-state,
+padding, block bookkeeping) is **3,850 cycles, 0.6%**. Sponge-level
+optimisation would be wasted effort; the permutation is the entire cost.
+
+That works out to roughly **4,450 cycles per byte hashed**.
 
 ### Footprint
 
 | Segment | bytes |
 |---|---:|
-| `LIB_MLKEM_CODE` | 484 |
+| `LIB_MLKEM_CODE` | 767 |
 | `LIB_MLKEM_RODATA` | 267 |
-| **resident total** | **751** |
-| `LIB_MLKEM_BSS` | 584 |
+| **resident total** | **1,034** |
+| `LIB_MLKEM_BSS` | 591 |
 
-**751 B of the ~3 KB P1 budget — 24.4%.** (The full ML-KEM image must fit a
+**1,034 B of the ~3 KB P1 budget — 33.7%** (484 B permutation + 283 B sponge). (The full ML-KEM image must fit a
 7,680-byte window in c64-https.) `make check-manifest` re-measures from the map
 file and **fails** if a declared footprint equate has fallen below measured.
 
@@ -161,6 +182,7 @@ make                  # standalone test PRG -> build/mlkem.prg (+ labels, map)
 make test             # full suite
 make test-ref         # oracle self-test only (pure Python, no VICE)
 make test-vice        # per-step differential trace under VICE
+make test-sha3        # FIPS 202 KATs (make test-sha3-full for all 820)
 make bench            # cycle-exact Keccak-f[1600] measurement
 make tables           # regenerate src/keccak_tables.inc from the model
 make test-ref -- --full   # all 100 Monte Carlo chains rather than 3

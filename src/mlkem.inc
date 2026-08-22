@@ -41,13 +41,40 @@ MLKEM_INC_INCLUDED = 1
 .import keccak_state
 
 ; --- Keccak-f[1600] permutation -------------------------------------------
-; PHASE 1 — not yet implemented. Declarations land here as they ship.
-;   keccak_f1600      in-place 24-round permutation of keccak_state
+; keccak_f1600  in-place 24-round permutation of keccak_state.
+;               600,746 cycles (measured, compact/looped form; `make bench`).
+;               Clobbers A/X/Y and the mlkem_zp_tmp / mlkem_zp_len slots.
+; keccak_clear  zero all 200 state bytes.
+.import keccak_f1600, keccak_clear
 
 ; --- Sponge: SHA3-256 / SHA3-512 / SHAKE128 / SHAKE256 --------------------
-; PHASE 2 — not yet implemented. Streaming API:
-;   *_init / *_absorb (incremental, arbitrary length) / *_final | *_squeeze
-;   SHAKE squeeze is repeatedly callable — ML-KEM's matrix expansion squeezes
-;   many blocks per call site.
+;
+; Streaming API. Absorb accepts arbitrary lengths and may be called repeatedly;
+; squeeze may be called repeatedly and CONTINUES the output stream, which is
+; what ML-KEM's matrix expansion needs. Padding is applied automatically on the
+; first squeeze, so a SHA-3 digest is just init / absorb* / squeeze.
+;
+;   1. jsr one of the four init routines
+;   2. per absorb:  mlkem_zp_src     <- pointer to the message chunk
+;                   mlkem_sponge_len <- chunk length (16-bit, little-endian)
+;                   jsr mlkem_absorb
+;   3. per squeeze: mlkem_zp_dst     <- pointer to the output buffer
+;                   mlkem_sponge_len <- bytes wanted (16-bit, little-endian)
+;                   jsr mlkem_squeeze
+;
+; Both calls consume mlkem_sponge_len (it reads 0 on return) and advance the
+; pointer slot they used, so absorbing a contiguous message in chunks needs the
+; pointer set only once.
+;
+; Digest sizes: SHA3-256 -> 32 bytes, SHA3-512 -> 64. The SHAKEs are
+; extendable: squeeze as many bytes as you want, in as many calls as you want.
+;
+; NOTE: these routines call keccak_f1600, which clobbers mlkem_zp_tmp and
+; mlkem_zp_len. Do not keep live consumer state in those two slots across a
+; sponge call. mlkem_zp_src and mlkem_zp_dst are preserved (advanced, not
+; destroyed).
+.import mlkem_sha3_256_init, mlkem_sha3_512_init
+.import mlkem_shake128_init, mlkem_shake256_init
+.import mlkem_absorb, mlkem_squeeze, mlkem_sponge_len
 
 .endif

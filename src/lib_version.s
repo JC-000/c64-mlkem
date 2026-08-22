@@ -30,10 +30,14 @@
 ;
 ; History:
 ;   1  v0.1.0  initial surface (P1 scaffold; no crypto exports yet)
+;   1  v0.2.0  ADDITIVE only — keccak_f1600/keccak_clear and the FIPS 202
+;              sponge joined the surface; nothing was removed or renamed, so
+;              the ABI generation counter does NOT move (§1: it counts
+;              BREAKING export changes, not releases).
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
-LIB_MLKEM_VERSION_MINOR = 1
+LIB_MLKEM_VERSION_MINOR = 2
 LIB_MLKEM_VERSION_PATCH = 0
 LIB_MLKEM_ABI_VERSION   = 1
 
