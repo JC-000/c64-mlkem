@@ -4,7 +4,9 @@ ML-KEM (FIPS 203) for the Commodore 64, in ca65 assembly.
 
 Part of the [JC-000](https://github.com/JC-000) 6502 crypto library ecosystem
 and conformant to [c64-lib-contract](https://github.com/JC-000/c64-lib-contract)
-**v0.10.6**.
+**v0.10.6**. Precalculated-table enumeration per §8.0:
+[`docs/precalc-tables.md`](docs/precalc-tables.md) — nothing in this library
+clears the §8.0 floor.
 
 The eventual product is **ML-KEM-768**, providing the post-quantum half of the
 hybrid `X25519MLKEM768` (0x11EC) key exchange for
