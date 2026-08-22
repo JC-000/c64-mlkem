@@ -1,0 +1,12 @@
+build/
+__pycache__/
+*.pyc
+.DS_Store
+# Serena: ignore regenerable/local state
+.serena/
+.ca65-ls/
+# Full CAVP LongMsg vector set — fetched on demand by tools/fetch_vectors.sh
+# (~4.8 MB; the ShortMsg/Monte/VariableOut sets ARE tracked, see
+# tools/vectors/README.md)
+tools/vectors/*LongMsg.rsp
+tools/vectors/*.zip
