@@ -39,7 +39,8 @@ cia1_crb        = $DC0F
 
 ; --- VIC-II ---------------------------------------------------------------
 vic_border      = $D020
-vic_screen_ctrl = $D011         ; bit 4 = display enable (blank => ~6% faster)
+vic_screen_ctrl = $D011         ; bit 4 = DEN, display enable
+vic_raster      = $D012         ; raster line, low 8 bits
 
 ; --- Keccak-f[1600] parameters (FIPS 202) ---------------------------------
 ; State is 25 lanes x 8 bytes. Lane index i = x + 5y, lanes little-endian.

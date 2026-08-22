@@ -36,7 +36,7 @@
 
 .export bench_cycles_start, bench_cycles_stop, bench_cycles
 .export bench_spin_1000
-.export vic_blank, vic_unblank
+.export vic_blank, vic_unblank, bench_sync_frame
 
 .segment "CODE"
 
@@ -139,6 +139,32 @@
         lda vic_screen_ctrl
         ora #$10                    ; DEN = 1
         sta vic_screen_ctrl
+        rts
+.endproc
+
+; --- bench_sync_frame -----------------------------------------------------
+; Wait for a full raster frame to elapse, twice.
+;
+; Why this is REQUIRED after vic_blank and not merely tidy: the VIC-II samples
+; DEN only at raster line $30. Clearing it later in a frame leaves badline DMA
+; running for the REST of that frame, so a short measurement window taken right
+; after vic_blank may still be stolen from — and whether it is depends purely
+; on where in the frame the blank happened. That is not a stable property of
+; the code being measured, and it is exactly what made an earlier version of
+; this harness report 1293 / 1310 / 1396 / 1439 cycles for one identical
+; routine depending on what ran before it.
+;
+; Waiting also aligns the window start to a known raster position, so the
+; measurement is reproducible rather than merely usually-right.
+.proc bench_sync_frame
+        ldx #2
+frame:
+:       lda vic_raster              ; leave line 0
+        beq :-
+:       lda vic_raster              ; and come back to it
+        bne :-
+        dex
+        bne frame
         rts
 .endproc
 

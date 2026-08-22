@@ -29,83 +29,98 @@ cycles per permutation that the whole PQC roadmap's wall-clock model rests on.
 
 ### Measured cycles per Keccak-f[1600]
 
-> ## ~600,771 cycles
+> ## 456,605 cycles
 >
-> 25,032 cycles/round · 587 ms at 1.023 MHz · compact/looped form, display blanked.
+> 19,025 cycles/round · 446 ms at 1.023 MHz · display blanked.
 
-The count is exact and repeatable *within* a build, but shifts by a few tens of
-cycles *between* builds: `iota` does 192 `lda keccak_rc,x` reads per
-permutation, and how many of those cross a page depends on where the linker
-placed the round-constant table. Moving the table from `$0A7E` to `$0BAB` (the
-sponge growing `LIB_MLKEM_CODE`) changed the crossing count from 62 to 107.
-Page-aligning the RC table would make the headline figure build-invariant; it
-is on the optimisation list rather than done here, so this checkpoint stays a
-faithful record of the unoptimised form.
+**24.0% faster than the v0.2.0 baseline** (600,771 cycles), all of it from
+`rho+pi`. The unoptimised form is preserved at tag
+[`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) as the
+reference point.
 
-**This is 1.7x the top of the roadmap's 150,000–350,000 estimate band.** At
-~55–60 permutations for ML-KEM-768 keygen+decaps that is **33–36M cycles of
-Keccak alone**, against a total budget of 40–70M for the whole operation. The
-estimate the roadmap was built on does not survive contact with a measurement;
-see *Where the cycles go* below for what can be recovered.
+The count is exact and repeatable within a build, and shifts by a few tens of
+cycles between builds: `iota` does 192 `lda keccak_rc,x` reads per permutation
+and how many cross a page depends on where ld65 placed the round-constant
+table. Page-aligning it would make the headline figure build-invariant.
 
-How it is measured: CIA1 Timer A+B chained as a 32-bit phi2 counter
-(`src/bench.s`). The instrument is calibrated before every report against a
-routine of known cost (`bench_spin_1000`, 1,293 cycles including its `jsr`) and
-`make bench` **refuses to print a Keccak number if that calibration is off**.
+**Still 1.3x the top of the roadmap's 150,000–350,000 estimate band.** At
+~55–60 permutations for ML-KEM-768 keygen+decaps that is **25–27M cycles of
+Keccak alone**, against a total budget of 40–70M for the whole operation —
+down from 33–36M at v0.2.0, but the original estimate does not survive contact
+with a measurement either way.
+
+Measured with CIA1 Timer A+B chained as a 32-bit phi2 counter (`src/bench.s`).
 Single and 8x-amortised measurements agree to 0.0 cycles.
-
-The display must be blanked for the count to be exact. With it enabled the
-VIC-II steals a varying number of badline cycles depending on where in the
-frame the window falls — measured here as 1293 / 1310 / 1396 / 1439 for one
-identical routine. `vic_blank` is not a 6% speed trick; it is what makes the
-measurement reproducible at all.
 
 ### Where the cycles go
 
-| Step | cycles/round | x24 | share |
-|---|---:|---:|---:|
-| theta | 6,859 | 164,616 | 27.4% |
-| **rho+pi** | **13,764** | **330,336** | **55.0%** |
-| chi | 4,191 | 100,584 | 16.7% |
-| iota | 208 | 4,992 | 0.8% |
+| Step | v0.2.0 | **v0.3.0** | x24 | share |
+|---|---:|---:|---:|---:|
+| theta | 6,859 | 6,859 | 164,616 | 36.1% |
+| **rho+pi** | 13,764 | **7,757** | 186,168 | 40.8% |
+| chi | 4,191 | 4,195 | 100,680 | 22.1% |
+| iota | 208 | 208 | 4,992 | 1.1% |
+| **total** | 25,022 | **19,019** | 456,456 | |
 
-rho+pi dominates, and it is the step with the most headroom left in it. The
-current form rotates each lane bit-by-bit with `rol` on memory (6 cycles a
-byte, up to 7 passes over 8 bytes) and recomputes a wrapping tmp index per
-byte. Two changes are available without touching the other steps:
+`rho+pi` went from 55.0% of the permutation to 40.8%, a **43.6% cut**, from
+three changes — for 402 bytes of code:
 
-1. **Rotate the short way round.** `ROTL64(v, 8s+b)` equals a byte-shift of
-   `s+1` followed by `ROTR64` of `8-b`, so no lane ever needs more than 4 bit
-   -shift passes instead of 7.
-2. **Unroll per rotation amount.** The byte-rotate index arithmetic
-   (`tya`/`and #7`/`tay`, 6 cycles per byte) is loop bookkeeping that
-   disappears entirely if the eight possible byte-rotations are unrolled with
-   constant offsets.
+1. **The copy goes straight to its destination.** The lane is written directly
+   into `keccak_B` at its pi destination and rotated in place there. No scratch
+   lane, no second store pass.
+2. **The byte rotation is free.** `rho[i]` splits as `8*byte + bit`; the whole
+   -byte part is just *which destination byte each source byte lands in*. The
+   eight possibilities are unrolled as eight straight-line copy routines
+   reached through a jump table, which deletes the per-byte index bookkeeping
+   (`tya`/`and #7`/`tay`) that dominated the old version.
+3. **It rotates the short way round.** `ROTL64(v, 8s+b)` with `b > 4` equals a
+   byte-rotation of `s+1` then a rotate *right* of `8-b`, since
+   `8s+b == 8(s+1)-(8-b)`. Taking the shorter direction caps the bit passes at
+   4 instead of 7 and cuts the per-round total from 88 to 52.
 
-3. **Page-align the round-constant table**, removing the build-to-build
-   variation described above (and ~100 cycles with it).
-
-Trades 1 and 2 are size-for-speed against the ~2 KB of budget still unspent.
+Still on the table: **theta** is now the second cost at 36.1% (its `D` step
+does per-byte mod-40 index arithmetic that could be unrolled per column), and
+**page-aligning the RC table** would remove the build-to-build variation.
 
 ### What the sponge costs
 
-Absorbing one full 136-byte rate block takes **604,621 cycles**, of which
-600,771 is the permutation — so the whole sponge layer (XOR-into-state,
-padding, block bookkeeping) is **3,850 cycles, 0.6%**. Sponge-level
-optimisation would be wasted effort; the permutation is the entire cost.
+Absorbing one full 136-byte rate block takes **460,455 cycles**, of which
+456,605 is the permutation — so the whole sponge layer (XOR-into-state,
+padding, block bookkeeping) is **3,850 cycles, 0.8%**. Sponge-level
+optimisation would be wasted effort; the permutation is the entire cost. That
+the figure is *exactly* 3,850 both before and after the rho+pi work — code the
+optimisation never touched — is a useful independent check on the instrument.
 
-That works out to roughly **4,450 cycles per byte hashed**.
+Roughly **3,385 cycles per byte hashed**.
+
+### Measuring this correctly is harder than it looks
+
+Two traps, both of which produced plausible-but-wrong numbers here first:
+
+* **`DEN` is sampled once per frame.** The VIC-II checks the display-enable bit
+  only at raster line `$30`, so blanking the screen mid-frame leaves badline
+  DMA running for the rest of it. A short window taken right after `vic_blank`
+  may or may not be stolen from, depending on what ran before — one identical
+  1,293-cycle routine measured 1293 / 1310 / 1396 / 1439. `bench_sync_frame`
+  waits two full frames after blanking, which also aligns the window start to a
+  known raster position.
+* **Discard a warm-up sample.** The first measurement after the machine has
+  been doing something else can differ from the steady state.
+
+`make bench` calibrates against a routine of known cost (1,293 cycles) and
+**refuses to print a Keccak number if that calibration is off**.
 
 ### Footprint
 
 | Segment | bytes |
 |---|---:|
-| `LIB_MLKEM_CODE` | 767 |
-| `LIB_MLKEM_RODATA` | 267 |
-| **resident total** | **1,034** |
-| `LIB_MLKEM_BSS` | 591 |
+| `LIB_MLKEM_CODE` | 1,169 |
+| `LIB_MLKEM_RODATA` | 308 |
+| **resident total** | **1,477** |
+| `LIB_MLKEM_BSS` | 594 |
 
-**1,034 B of the ~3 KB P1 budget — 33.7%** (484 B permutation + 283 B sponge). (The full ML-KEM image must fit a
+**1,477 B of the ~3 KB P1 budget — 48.1%** (886 B permutation + 283 B sponge).
+The permutation grew 402 B to buy the 24% speedup. (The full ML-KEM image must fit a
 7,680-byte window in c64-https.) `make check-manifest` re-measures from the map
 file and **fails** if a declared footprint equate has fallen below measured.
 

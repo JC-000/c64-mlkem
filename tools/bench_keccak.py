@@ -60,16 +60,18 @@ SPIN_EXPECTED = 1287 + 6
 def build_thunk(labels, target=None, repeat=1, blank=True):
     """[vic_blank] jsr start ; [jsr target]*n ; jsr stop ; [vic_unblank] ; rts
 
-    The display is blanked across the window by default. With it enabled the
-    VIC-II steals a varying number of badline cycles depending on where in the
-    frame the window falls, so the same routine measures differently run to
-    run — the count is only cycle-exact with DEN clear.
+    The display is blanked across the window by default, and bench_sync_frame
+    then waits two full frames — the VIC-II samples DEN only at raster line
+    $30, so blanking mid-frame leaves badline DMA running for the rest of that
+    frame. Without the wait the count depends on where in the frame the blank
+    landed, which is a property of what ran before, not of the code measured.
     """
     def j(addr):
         return bytes([0x20, addr & 0xFF, (addr >> 8) & 0xFF])
     code = b""
     if blank:
         code += j(labels["vic_blank"])
+        code += j(labels["bench_sync_frame"])   # DEN is sampled at line $30
     code += j(labels["bench_cycles_start"])
     if target is not None:
         code += j(labels[target]) * repeat
@@ -94,6 +96,16 @@ def measure_stable(transport, labels, target=None, repeat=1, tries=3, blank=True
     `setup` runs before each measurement and OUTSIDE the timed window, for
     cases that need the machine put back into a known state first.
     """
+    # Discard one warm-up measurement. The first sample taken after the
+    # machine has been doing something else can differ from the steady state
+    # (observed on the sponge measurement: 461490 then 460459, 460459). The
+    # counter itself is exact; it is the first-call machine state that is not
+    # representative, so the honest fix is to measure the steady state and say
+    # so rather than to average the two.
+    if setup:
+        setup()
+    measure(transport, labels, target, repeat, blank)
+
     vals = []
     for _ in range(tries):
         if setup:

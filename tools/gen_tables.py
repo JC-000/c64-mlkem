@@ -36,13 +36,32 @@ for r, v in enumerate(K.RC):
     b = ", ".join(f"${(v >> (8 * k)) & 0xFF:02X}" for k in range(8))
     o(f"        .byte {b}   ; round {r:2d}\n")
 
+# Rotation decomposition, indexed by source lane.
+#
+#   ROTL64(v, 8s+b) with b <= 4  ==  byte-rotate s, then rotate LEFT b
+#   ROTL64(v, 8s+b) with b >  4  ==  byte-rotate s+1, then rotate RIGHT 8-b
+#
+# because 8s+b == 8(s+1) - (8-b). Taking whichever direction is shorter caps
+# the bit passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
+# Verified for all 25 lanes in tools/test_keccak_ref.py.
+rot_byte, rot_cnt, rot_dir = [], [], []
+for i in range(25):
+    s, b = K.RHO[i] >> 3, K.RHO[i] & 7
+    if b <= 4:
+        rot_byte.append(s); rot_cnt.append(b); rot_dir.append(0)
+    else:
+        rot_byte.append((s + 1) & 7); rot_cnt.append(8 - b); rot_dir.append(1)
+
 o("\n; Fused rho+pi, indexed by SOURCE lane i = x + 5y.\n")
-o("; keccak_pi_dst:   destination BYTE offset (8 * destination lane index)\n")
-o("; keccak_rho_byte: rho[i] / 8  — whole-byte rotation (free: a byte permute)\n")
-o("; keccak_rho_bit:  rho[i] % 8  — residual bit rotation\n")
+o("; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)\n")
+o("; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute\n")
+o(";                  applied while copying the lane into its destination\n")
+o("; keccak_rot_cnt:  residual bit passes, 0..4\n")
+o("; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)\n")
 for name, vals in (("keccak_pi_dst",   [8 * dst[i] for i in range(25)]),
-                   ("keccak_rho_byte", [K.RHO[i] // 8 for i in range(25)]),
-                   ("keccak_rho_bit",  [K.RHO[i] % 8 for i in range(25)])):
+                   ("keccak_rot_byte", rot_byte),
+                   ("keccak_rot_cnt",  rot_cnt),
+                   ("keccak_rot_dir",  rot_dir)):
     o(f"{name}:\n")
     for row in range(5):
         o("        .byte " + ", ".join(f"{vals[i]:3d}" for i in range(row * 5, row * 5 + 5)) + "\n")

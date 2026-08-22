@@ -63,14 +63,35 @@ kc_round   = mlkem_zp_len + 1      ; round counter 0..23
 
 .include "keccak_tables.inc"
 
+; Dispatch table for the eight byte-rotation copy variants.
+copy_vec:
+        .addr copy_s0, copy_s1, copy_s2, copy_s3
+        .addr copy_s4, copy_s5, copy_s6, copy_s7
+
 .segment "LIB_MLKEM_BSS"
 
+; Order matters here. ld65 aligns an object's ENTIRE segment fragment to the
+; largest alignment requested inside it, so any variable declared BEFORE the
+; `.align 256` below still lands after that alignment — and then pushes
+; keccak_B to the next page, costing ~253 bytes of padding. The aligned
+; buffers come first; the odd bytes go at the end where they are free.
 .align 256
 keccak_B:       .res 200           ; rho+pi destination; page-aligned
 keccak_C:       .res 40            ; theta column parities
 keccak_rot:     .res 40            ; ROTL64(C[x], 1)
 keccak_D:       .res 40            ; theta D[x]
 keccak_tmp:     .res 8             ; one lane of scratch
+
+; kc_dst / kc_jmp live in BSS rather than zero page so the library's declared
+; ZP surface stays at the 8 bytes in zp_config.s.
+kc_dst:         .res 1             ; destination byte offset for this lane
+kc_jmp:         .res 2             ; indirect vector for the copy dispatch
+
+; The 6502's `jmp (abs)` fetches the high byte from the SAME page as the low
+; one, so a vector whose low byte is $FF reads its high byte from the start of
+; that page instead of the next. Placement here makes that impossible, and the
+; assert keeps it impossible if the layout above ever changes.
+.assert (kc_jmp .mod 256) <> $FF, lderror, "kc_jmp straddles a page: jmp (abs) would fetch the wrong high byte"
 
 .segment "LIB_MLKEM_CODE"
 
@@ -190,70 +211,123 @@ apply:
 ; =============================================================================
 ; rho + pi, fused:  B[pi_dst[i]] = ROTL64(A[i], rho[i])
 ;
-; rho[i] splits as 8*byte + bit. The whole-byte part is free — it is just a
-; byte permutation applied while copying the lane into scratch. Only the 0..7
-; residual bits need real shifting.
+; Three things make this the fast form rather than the obvious one:
+;
+;  1. THE BYTE ROTATION IS FREE. rho[i] splits as 8*byte + bit; the whole-byte
+;     part is applied while copying the lane, by choosing which destination
+;     byte each source byte lands in. No shifting at all.
+;
+;  2. THE COPY GOES STRAIGHT TO THE DESTINATION. The lane is written directly
+;     into keccak_B at its pi destination and rotated IN PLACE there, so there
+;     is no scratch lane and no second 8-byte store pass.
+;
+;  3. IT ROTATES THE SHORT WAY ROUND. ROTL64(v, 8s+b) with b > 4 equals a
+;     byte-rotation of s+1 followed by a rotate RIGHT of 8-b, since
+;     8s+b == 8(s+1)-(8-b). Taking whichever direction is shorter caps the bit
+;     passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
+;     keccak_rot_dir says which way; the decomposition is verified for all 25
+;     lanes in tools/test_keccak_ref.py.
+;
+; The eight possible byte-rotations are unrolled as eight straight-line copy
+; routines reached through a jump table, which removes the per-byte index
+; bookkeeping (`tya`/`and #7`/`tay`) that dominated the previous version.
+;
+; Register discipline through the whole lane body:
+;     X = destination byte offset in keccak_B  (held across copy AND rotate)
+;     Y = 8 * source lane                      (copy only)
 ; =============================================================================
 .proc keccak_rhopi
         lda #0
         sta kc_lane
 lane_loop:
-        ; --- copy lane into keccak_tmp, applying the whole-byte rotation ---
         ldy kc_lane
-        lda keccak_rho_byte,y
-        tay                         ; Y = destination index inside tmp
+        lda keccak_pi_dst,y
+        sta kc_dst
+
+        ; Select the copy variant for this lane's whole-byte rotation.
+        lda keccak_rot_byte,y
+        asl a
+        tay
+        lda copy_vec+0,y
+        sta kc_jmp+0
+        lda copy_vec+1,y
+        sta kc_jmp+1
+
         lda kc_lane
         asl a
         asl a
         asl a
-        tax                         ; X = 8 * lane = source byte offset
-        lda #8
+        tay                         ; Y = 8 * lane (source)
+        ldx kc_dst                  ; X = destination offset, held from here on
+        jmp (kc_jmp)
+
+copy_done:
+        ; --- residual bit rotation, in place at keccak_B + X ----------------
+        ldy kc_lane
+        lda keccak_rot_cnt,y
+        beq next_lane
         sta kc_count
-byte_loop:
-        lda keccak_state,x
-        sta keccak_tmp,y
-        inx
-        iny
-        tya
-        and #7                      ; tmp index wraps within the lane
-        tay
-        dec kc_count
-        bne byte_loop
+        lda keccak_rot_dir,y
+        bne rot_right
 
-        ; --- residual bit rotation, 0..7 times ------------------------------
-        ldy kc_lane
-        ldx keccak_rho_bit,y
-        beq no_bits
-bit_loop:
-        lda keccak_tmp+7
+rot_left:
+        lda keccak_B+7,x
         asl a                       ; C = bit 63
-        rol keccak_tmp+0
-        rol keccak_tmp+1
-        rol keccak_tmp+2
-        rol keccak_tmp+3
-        rol keccak_tmp+4
-        rol keccak_tmp+5
-        rol keccak_tmp+6
-        rol keccak_tmp+7
-        dex
-        bne bit_loop
-no_bits:
+        rol keccak_B+0,x
+        rol keccak_B+1,x
+        rol keccak_B+2,x
+        rol keccak_B+3,x
+        rol keccak_B+4,x
+        rol keccak_B+5,x
+        rol keccak_B+6,x
+        rol keccak_B+7,x
+        dec kc_count
+        bne rot_left
+        beq next_lane               ; always taken
 
-        ; --- store into B at the pi destination -----------------------------
-        ldy kc_lane
-        ldx keccak_pi_dst,y
-        .repeat 8, i
-        lda keccak_tmp+i
-        sta keccak_B+i,x
-        .endrepeat
+rot_right:
+        lda keccak_B+0,x
+        lsr a                       ; C = bit 0
+        ror keccak_B+7,x
+        ror keccak_B+6,x
+        ror keccak_B+5,x
+        ror keccak_B+4,x
+        ror keccak_B+3,x
+        ror keccak_B+2,x
+        ror keccak_B+1,x
+        ror keccak_B+0,x
+        dec kc_count
+        bne rot_right
 
+next_lane:
         inc kc_lane
         lda kc_lane
         cmp #25
         beq :+
-        jmp lane_loop               ; the lane body exceeds a branch's 8-bit
-:       rts                         ; displacement, so this cannot be a bne
+        jmp lane_loop               ; body exceeds a branch displacement
+:       rts
 .endproc
+
+; --- the eight byte-rotation copy variants ---------------------------------
+; Each writes all 8 source bytes to their rotated destination positions:
+;     keccak_B[dst + ((j + s) & 7)] = keccak_state[8*lane + j]
+; Straight-line lda abs,Y / sta abs,X pairs — no index arithmetic at all.
+.macro COPY_VARIANT s
+    .repeat 8, j
+        lda keccak_state+j,y
+        sta keccak_B+((j+s) & 7),x
+    .endrepeat
+        jmp keccak_rhopi::copy_done
+.endmacro
+
+copy_s0: COPY_VARIANT 0
+copy_s1: COPY_VARIANT 1
+copy_s2: COPY_VARIANT 2
+copy_s3: COPY_VARIANT 3
+copy_s4: COPY_VARIANT 4
+copy_s5: COPY_VARIANT 5
+copy_s6: COPY_VARIANT 6
+copy_s7: COPY_VARIANT 7
 
 ; =============================================================================
 ; chi:  A[x,y] = B[x,y] ^ ((~B[x+1,y]) & B[x+2,y])

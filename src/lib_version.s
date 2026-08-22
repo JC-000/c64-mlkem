@@ -34,10 +34,13 @@
 ;              sponge joined the surface; nothing was removed or renamed, so
 ;              the ABI generation counter does NOT move (§1: it counts
 ;              BREAKING export changes, not releases).
+;   1  v0.3.0  rho+pi optimisation. Pure implementation change: no export
+;              added, removed or renamed, and no calling convention touched,
+;              so the counter again does not move.
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
-LIB_MLKEM_VERSION_MINOR = 2
+LIB_MLKEM_VERSION_MINOR = 3
 LIB_MLKEM_VERSION_PATCH = 0
 LIB_MLKEM_ABI_VERSION   = 1
 

@@ -42,7 +42,7 @@ MLKEM_INC_INCLUDED = 1
 
 ; --- Keccak-f[1600] permutation -------------------------------------------
 ; keccak_f1600  in-place 24-round permutation of keccak_state.
-;               600,746 cycles (measured, compact/looped form; `make bench`).
+;               456,605 cycles (measured; `make bench`).
 ;               Clobbers A/X/Y and the mlkem_zp_tmp / mlkem_zp_len slots.
 ; keccak_clear  zero all 200 state bytes.
 .import keccak_f1600, keccak_clear

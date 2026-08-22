@@ -34,24 +34,32 @@ keccak_rc:
         .byte $08, $80, $00, $80, $00, $00, $00, $80   ; round 23
 
 ; Fused rho+pi, indexed by SOURCE lane i = x + 5y.
-; keccak_pi_dst:   destination BYTE offset (8 * destination lane index)
-; keccak_rho_byte: rho[i] / 8  — whole-byte rotation (free: a byte permute)
-; keccak_rho_bit:  rho[i] % 8  — residual bit rotation
+; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)
+; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute
+;                  applied while copying the lane into its destination
+; keccak_rot_cnt:  residual bit passes, 0..4
+; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)
 keccak_pi_dst:
         .byte   0,  80, 160,  40, 120
         .byte 128,   8,  88, 168,  48
         .byte  56, 136,  16,  96, 176
         .byte 184,  64, 144,  24, 104
         .byte 112, 192,  72, 152,  32
-keccak_rho_byte:
-        .byte   0,   0,   7,   3,   3
-        .byte   4,   5,   0,   6,   2
-        .byte   0,   1,   5,   3,   4
-        .byte   5,   5,   1,   2,   1
-        .byte   2,   0,   7,   7,   1
-keccak_rho_bit:
-        .byte   0,   1,   6,   4,   3
-        .byte   4,   4,   6,   7,   4
-        .byte   3,   2,   3,   1,   7
-        .byte   1,   5,   7,   5,   0
-        .byte   2,   2,   5,   0,   6
+keccak_rot_byte:
+        .byte   0,   0,   0,   3,   3
+        .byte   4,   5,   1,   7,   2
+        .byte   0,   1,   5,   3,   5
+        .byte   5,   6,   2,   3,   1
+        .byte   2,   0,   0,   7,   2
+keccak_rot_cnt:
+        .byte   0,   1,   2,   4,   3
+        .byte   4,   4,   2,   1,   4
+        .byte   3,   2,   3,   1,   1
+        .byte   1,   3,   1,   3,   0
+        .byte   2,   2,   3,   0,   2
+keccak_rot_dir:
+        .byte   0,   0,   1,   0,   0
+        .byte   0,   0,   1,   1,   0
+        .byte   0,   0,   0,   0,   1
+        .byte   0,   1,   1,   1,   0
+        .byte   0,   0,   1,   0,   1
