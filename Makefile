@@ -54,36 +54,48 @@ PYTHON ?= $(shell [ -x $(FLEET_VENV) ] && echo $(FLEET_VENV) || command -v pytho
 
 # --- object sets ------------------------------------------------------------
 #
-# LIB_OBJS: what ships in build/lib/mlkem.a.
+# TWO separately-configured object trees, which contract §6.4 requires: a
+# manifest TU must be assembled under the same configuration as the archive it
+# ships in. The standalone PRG is built with -D MLKEM_TEST_HOOKS=1 so the
+# differential harness can reach the individual step functions; the archive is
+# built WITHOUT it, so its export surface stays minimal and stable (§6.5 makes
+# exported symbols contract surface). Sharing one .o tree between the two would
+# silently ship test scaffolding in the archive.
+# (comments on their own lines: make keeps the whitespace before a trailing
+#  '#', so `FOO = bar   # note` sets FOO to "bar   " and every path built
+#  from it breaks in a way the error message does not point at.)
+# OBJ_DIR  = archive configuration
+# TOBJ_DIR = standalone/test configuration
+OBJ_DIR = $(BUILD_DIR)/obj
+TOBJ_DIR = $(BUILD_DIR)/tobj
+
+TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
+
+# Library sources — the members of build/lib/mlkem.a.
 #   NOT included, deliberately:
-#     main.o       driver — §6.1 forbids a driver object in an archive
-#     bench.o      measurement harness, not library surface
-#     zp_config.o  §6.2 consumer-assembled ZP model: no archive TU defines a
+#     main.s       driver — §6.1 forbids a driver object in an archive
+#     bench.s      measurement harness, not library surface
+#     zp_config.s  §6.2 consumer-assembled ZP model: no archive TU defines a
 #                  slot; the consumer assembles src/zp_config.s themselves
-LIB_OBJS = $(BUILD_DIR)/lib_version.o \
-           $(BUILD_DIR)/lib_manifest.o \
-           $(BUILD_DIR)/state.o
+LIB_SRCS = lib_version lib_manifest state keccak
 
-# KECCAK_OBJS: the narrowed `lib-keccak` member set. Identical to LIB_OBJS in
-# Phase 0 (there is no sponge code yet to leave out); they diverge in Phase 2
-# when the sponge layer lands as its own TU.
-KECCAK_OBJS = $(LIB_OBJS)
+# The narrowed `lib-keccak` member set. Identical to LIB_SRCS today; they
+# diverge in Phase 2 when the sponge layer lands as its own TU.
+KECCAK_SRCS = $(LIB_SRCS)
 
-# Driver-side objects: linked into the standalone PRG only.
-DRIVER_OBJS = $(BUILD_DIR)/main.o \
-              $(BUILD_DIR)/bench.o \
-              $(BUILD_DIR)/zp_config.o
+# Driver-side sources: standalone PRG only.
+DRIVER_SRCS = main bench zp_config
+
+LIB_OBJS    = $(addprefix $(OBJ_DIR)/,  $(addsuffix .o,$(LIB_SRCS)))
+KECCAK_OBJS = $(addprefix $(OBJ_DIR)/,  $(addsuffix .o,$(KECCAK_SRCS)))
 
 # main.o MUST come first so `start` lands at $080D, matching SYS 2061.
-LINK_OBJS = $(BUILD_DIR)/main.o \
-            $(BUILD_DIR)/bench.o \
-            $(BUILD_DIR)/zp_config.o \
-            $(LIB_OBJS)
+LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS)))
 
 ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
-.PHONY: all clean test test-ref bench lib lib-keccak \
+.PHONY: all clean test test-ref test-vice bench tables lib lib-keccak \
         check-manifest check-archives vectors help
 
 all: $(PRG)
@@ -99,12 +111,21 @@ $(PRG): $(LINK_OBJS) $(CFG) | $(BUILD_DIR)
 	@echo "built $(PRG)  (map: $(MAPFILE), labels: $(LABELS))"
 
 # zp_config.o is the ONLY TU that defines ZP slots, so it is the only recipe
-# that receives CONTRACT_ZP_DEFINES (§6.2 scoping rule).
-$(BUILD_DIR)/zp_config.o: $(SRC_DIR)/zp_config.s | $(BUILD_DIR)
-	$(CA65) $(ALL_CA65FLAGS) $(CONTRACT_ZP_DEFINES) -o $@ $<
+# that receives CONTRACT_ZP_DEFINES (§6.2 scoping rule: a slot define must
+# reach every TU that DEFINES the slot and no TU that .importzp's it).
+$(TOBJ_DIR)/zp_config.o: $(SRC_DIR)/zp_config.s | $(TOBJ_DIR)
+	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) $(CONTRACT_ZP_DEFINES) -o $@ $<
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.s | $(BUILD_DIR)
+$(TOBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(TOBJ_DIR)
+	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $<
+
+$(OBJ_DIR)/keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) -o $@ $<
+
+$(OBJ_DIR) $(TOBJ_DIR):
+	@mkdir -p $@
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
@@ -162,14 +183,23 @@ check-manifest: $(PRG)
 test-ref: vectors
 	@$(PYTHON) $(TOOLS_DIR)/test_keccak_ref.py
 
-# Full suite. Phase 0 has no 6502 crypto yet, so this is test-ref plus the
-# contract checks; the VICE KAT driver lands in Phase 1.
-test: test-ref check-archives
+# Differential test of the 6502 permutation against the validated model,
+# single-stepping every round. Needs VICE + c64-test-harness.
+test-vice: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_keccak.py
+
+# Full suite: oracle self-test, the VICE differential trace, contract checks.
+test: test-ref test-vice check-archives
 	@echo "test: OK"
 
+# Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
+# routine of known cost and refuses to report a Keccak number if that fails.
 bench: $(PRG)
-	@echo "bench: Phase 4 target — calibrates bench_spin_1000 (1287 cycles)"
-	@echo "       then measures Keccak-f[1600]. Not wired up until Phase 1 lands."
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_keccak.py
+
+# Regenerate the rho/pi/RC tables from the validated model.
+tables:
+	$(PYTHON) $(TOOLS_DIR)/gen_tables.py > $(SRC_DIR)/keccak_tables.inc
 
 vectors:
 	@$(TOOLS_DIR)/fetch_vectors.sh
@@ -183,6 +213,9 @@ help:
 	@echo "make lib-keccak   $(ARCHIVE_KECCAK)"
 	@echo "make test         full suite (test-ref + contract checks)"
 	@echo "make test-ref     oracle self-test (Python only, no VICE)"
+	@echo "make test-vice    per-step differential trace under VICE"
+	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
+	@echo "make tables       regenerate src/keccak_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors"

@@ -19,7 +19,7 @@ is built on:
 
 | Phase | Scope | State |
 |---|---|---|
-| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **in progress** — scaffold + validation oracle done, permutation next |
+| **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **in progress** — permutation done, verified and measured; sponge layer next |
 | P2 | NTT / mod-3329 arithmetic, samplers, keygen/encaps/decaps vs NIST ACVP | not started |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
@@ -29,13 +29,64 @@ cycles per permutation that the whole PQC roadmap's wall-clock model rests on.
 
 ### Measured cycles per Keccak-f[1600]
 
-> **not yet measured** — Phase 4 deliverable. This number is the point of P1.
+> ## 600,746 cycles
+>
+> 25,031 cycles/round · 587 ms at 1.023 MHz · compact/looped form, display blanked.
+
+**This is 1.7x the top of the roadmap's 150,000–350,000 estimate band.** At
+~55–60 permutations for ML-KEM-768 keygen+decaps that is **33–36M cycles of
+Keccak alone**, against a total budget of 40–70M for the whole operation. The
+estimate the roadmap was built on does not survive contact with a measurement;
+see *Where the cycles go* below for what can be recovered.
+
+How it is measured: CIA1 Timer A+B chained as a 32-bit phi2 counter
+(`src/bench.s`). The instrument is calibrated before every report against a
+routine of known cost (`bench_spin_1000`, 1,293 cycles including its `jsr`) and
+`make bench` **refuses to print a Keccak number if that calibration is off**.
+Single and 8x-amortised measurements agree to 0.0 cycles.
+
+The display must be blanked for the count to be exact. With it enabled the
+VIC-II steals a varying number of badline cycles depending on where in the
+frame the window falls — measured here as 1293 / 1310 / 1396 / 1439 for one
+identical routine. `vic_blank` is not a 6% speed trick; it is what makes the
+measurement reproducible at all.
+
+### Where the cycles go
+
+| Step | cycles/round | x24 | share |
+|---|---:|---:|---:|
+| theta | 6,859 | 164,616 | 27.4% |
+| **rho+pi** | **13,764** | **330,336** | **55.0%** |
+| chi | 4,191 | 100,584 | 16.7% |
+| iota | 208 | 4,992 | 0.8% |
+
+rho+pi dominates, and it is the step with the most headroom left in it. The
+current form rotates each lane bit-by-bit with `rol` on memory (6 cycles a
+byte, up to 7 passes over 8 bytes) and recomputes a wrapping tmp index per
+byte. Two changes are available without touching the other steps:
+
+1. **Rotate the short way round.** `ROTL64(v, 8s+b)` equals a byte-shift of
+   `s+1` followed by `ROTR64` of `8-b`, so no lane ever needs more than 4 bit
+   -shift passes instead of 7.
+2. **Unroll per rotation amount.** The byte-rotate index arithmetic
+   (`tya`/`and #7`/`tay`, 6 cycles per byte) is loop bookkeeping that
+   disappears entirely if the eight possible byte-rotations are unrolled with
+   constant offsets.
+
+Both are size-for-speed trades against the ~2.3 KB of budget still unspent.
 
 ### Footprint
 
-> P1 budget is **≤ ~3 KB** code+rodata (the full ML-KEM image must fit a
-> 7,680-byte window in c64-https). Run `make check-manifest` for current
-> measured sizes against that budget.
+| Segment | bytes |
+|---|---:|
+| `LIB_MLKEM_CODE` | 484 |
+| `LIB_MLKEM_RODATA` | 267 |
+| **resident total** | **751** |
+| `LIB_MLKEM_BSS` | 584 |
+
+**751 B of the ~3 KB P1 budget — 24.4%.** (The full ML-KEM image must fit a
+7,680-byte window in c64-https.) `make check-manifest` re-measures from the map
+file and **fails** if a declared footprint equate has fallen below measured.
 
 ---
 
@@ -109,6 +160,9 @@ Requires the cc65 suite (`ca65`/`ld65`/`ar65`) and, for the VICE tests,
 make                  # standalone test PRG -> build/mlkem.prg (+ labels, map)
 make test             # full suite
 make test-ref         # oracle self-test only (pure Python, no VICE)
+make test-vice        # per-step differential trace under VICE
+make bench            # cycle-exact Keccak-f[1600] measurement
+make tables           # regenerate src/keccak_tables.inc from the model
 make test-ref -- --full   # all 100 Monte Carlo chains rather than 3
 make check-manifest   # measured segment sizes vs the §5 footprint equates
 make check-archives   # assert no driver object leaked into an archive

@@ -36,6 +36,7 @@
 
 .export bench_cycles_start, bench_cycles_stop, bench_cycles
 .export bench_spin_1000
+.export vic_blank, vic_unblank
 
 .segment "CODE"
 
@@ -114,6 +115,30 @@
         lda bench_cycles_saved_p
         pha
         plp                         ; restore caller's I flag
+        rts
+.endproc
+
+; --- vic_blank / vic_unblank ---------------------------------------------
+; The VIC-II steals CPU cycles on badlines (~40-43 cycles each, 25 per frame
+; in text mode). A measurement window shorter than a frame therefore contains
+; a VARYING number of badlines depending on where in the frame it starts, and
+; repeated runs of the same code disagree — measured here as 1293 / 1310 /
+; 1396 / 1439 cycles for one identical 1,293-cycle routine.
+;
+; Clearing DEN (bit 4 of $D011) blanks the display and stops badline DMA
+; outright, which makes the count reproducible to the cycle and is also ~6%
+; faster. Blank across any window whose result is meant to be exact.
+.proc vic_blank
+        lda vic_screen_ctrl
+        and #$EF                    ; DEN = 0: display off, no badline DMA
+        sta vic_screen_ctrl
+        rts
+.endproc
+
+.proc vic_unblank
+        lda vic_screen_ctrl
+        ora #$10                    ; DEN = 1
+        sta vic_screen_ctrl
         rts
 .endproc
 

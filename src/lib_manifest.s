@@ -19,15 +19,26 @@
 ; next 256-byte boundary). A consumer asserts declared <= budget, so a
 ; safe-direction value means declared-passes implies actual-passes.
 ;
-; !! P1 SCAFFOLD VALUES !! Phase 0 ships no crypto code, so the footprint
-; equates are 0 — accurate, not a placeholder. They are refreshed from the
-; ld65 map file at the end of every phase (see `make check-manifest`).
+; Refreshed from the ld65 map file at the end of every phase
+; (`make check-manifest`, which FAILS if a value is below measured).
+;
+; P1 Phase 1 measurement — Keccak-f[1600] permutation, compact/looped form:
+;   LIB_MLKEM_CODE    484 B   (theta, rho+pi, chi, iota, the round driver)
+;   LIB_MLKEM_RODATA  267 B   (192 B round constants + 3 x 25 B rho/pi tables)
+;   ------------------------
+;   resident          751 B   -> declared 768 (next 256-B boundary)
+; Against the P1 budget of ~3 KB code+rodata that is 24.4% — the sponge layer
+; and its four rate/suffix wrappers land in the remaining headroom.
+;
+; LIB_MLKEM_BSS is 584 B (200 state + 56 alignment pad + 200 rho+pi
+; destination + 120 theta scratch + 8 lane scratch). BSS is not a footprint
+; equate; consumers size it from the segment itself.
 ; =============================================================================
 
 ; --- §5 required four ---------------------------------------------------
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
-LIB_MLKEM_RESIDENT_BYTES = 0
+LIB_MLKEM_RESIDENT_BYTES = 768
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).
 ; Pairs with RESIDENT_BYTES per §6.6 — COLD is reclaimable-after-init and may
