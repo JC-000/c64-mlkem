@@ -87,8 +87,14 @@ KECCAK_SRCS = $(LIB_SRCS)
 # Driver-side sources: standalone PRG only.
 DRIVER_SRCS = main bench zp_config
 
-LIB_OBJS    = $(addprefix $(OBJ_DIR)/,  $(addsuffix .o,$(LIB_SRCS)))
-KECCAK_OBJS = $(addprefix $(OBJ_DIR)/,  $(addsuffix .o,$(KECCAK_SRCS)))
+# Archive members carry the `<shortname>_` prefix (§6.5). That clause defers
+# the rename to each library's next MAJOR because a member cannot hold two
+# names at once — but c64-mlkem has no released consumers, so it can be born
+# prefixed and skip the migration window entirely. It also keeps this library
+# off the flat-namespace pile-up the clause is worried about: `lib_version.o`
+# and `lib_manifest.o` still have four claimants, not five.
+LIB_OBJS    = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(LIB_SRCS)))
+KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS)))
 
 # main.o MUST come first so `start` lands at $080D, matching SYS 2061.
 LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS)))
@@ -120,9 +126,9 @@ $(TOBJ_DIR)/zp_config.o: $(SRC_DIR)/zp_config.s | $(TOBJ_DIR)
 $(TOBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(TOBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $<
 
-$(OBJ_DIR)/keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
+$(OBJ_DIR)/mlkem_keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
+$(OBJ_DIR)/mlkem_%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) -o $@ $<
 
 $(OBJ_DIR) $(TOBJ_DIR):
@@ -165,7 +171,7 @@ $(LIB_DIR)/cfg/mlkem-example.cfg: $(CFG_DIR)/mlkem-example.cfg | $(LIB_DIR)
 check-archives: lib lib-keccak
 	@fail=0; \
 	for a in $(ARCHIVE) $(ARCHIVE_KECCAK); do \
-	  for bad in main.o bench.o zp_config.o; do \
+	  for bad in main.o bench.o zp_config.o mlkem_main.o mlkem_bench.o mlkem_zp_config.o; do \
 	    if $(AR65) t $$a 2>/dev/null | grep -qx "$$bad"; then \
 	      echo "FAIL: $$bad is a member of $$a (contract §6.1)"; fail=1; fi; \
 	  done; \

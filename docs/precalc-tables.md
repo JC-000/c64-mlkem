@@ -45,5 +45,14 @@ All are generated from the validated reference model by `tools/gen_tables.py`
 ## This changes in P2
 
 ML-KEM's NTT needs twiddle factors and mod-3329 reduction aids, and its modular
-multiplies are a candidate **consumer** of the §8.3 shared 8×8 multiply tables.
+multiplies make this library a candidate **consumer** of a §8.x shared
+primitive. Which one is an open question, and they are three distinct
+obligations rather than one:
+
+| Clause | Primitive | Kind |
+|---|---|---|
+| §8.1 | `sqtab` | shared quarter-square **table** |
+| §8.2 | `reu_mul` | shared REU multiplication **table** |
+| §8.3 | `ct_mul_8x8` | shared constant-time multiply **body** — not a table |
+
 Expect this file and both §8 masks to gain real content when Phase 2 lands.

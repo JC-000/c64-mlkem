@@ -67,13 +67,16 @@ LIB_MLKEM_REU_BANKS_USED = 0
 
 ; --- §8 shared primitives -----------------------------------------------
 ;
-; Keccak is XOR/AND/NOT/rotate only — it contains no multiply, so the §8.3
-; shared 8x8 multiply tables and the §8.1 quarter-square table are irrelevant
-; here. Both masks are 0: this library neither owns nor consumes any shared
-; primitive.
+; Keccak is XOR/AND/NOT/rotate only — it contains no multiply at all, so every
+; §8.x shared primitive is irrelevant here. Both masks are 0: this library
+; neither owns nor consumes any of them.
 ;
-; This changes in P2: the NTT's modular multiplies are a candidate consumer of
-; the shared 8x8 tables, at which point LIB_MLKEM_SHARED_CONSUMES gains bits
+; This changes in P2, where the NTT's modular multiplies make all three
+; candidates — and they are three DIFFERENT obligations, not one:
+;   §8.1  sqtab       shared quarter-square TABLE
+;   §8.2  reu_mul     shared REU multiplication TABLE
+;   §8.3  ct_mul_8x8  shared constant-time multiply BODY (not a table)
+; Whichever P2 touches, LIB_MLKEM_SHARED_CONSUMES gains the corresponding bits
 ; and §8.0's ownership-state machinery becomes live for this repo.
 LIB_MLKEM_SHARED_PRIMITIVES = 0
 LIB_MLKEM_SHARED_CONSUMES   = 0
