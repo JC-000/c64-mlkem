@@ -60,8 +60,16 @@ Contract is **v0.11.0**; `git -C ../c64-lib-contract fetch --tags` before
 checking, the local tags go stale. Prefix `<X>` = `MLKEM`, shortname `mlkem`.
 
 - `src/lib_version.s` exports the four §1 version equates and **nothing else** —
-  ld65 links whole archive members, so a manifest equate sharing that member
-  drags the deprecated bare names into a two-library link and collides.
+  ld65 links whole archive members, so anything sharing that member enters a
+  consumer's link uninvited.
+- **No deprecated bare `LIB_VERSION_*` exports, and no unprefixed archive member
+  basenames.** Both are contract v0.11.0 zero-consumer carve-outs that this
+  library is the first to take; re-adding either would put it back on a
+  migration path it deliberately skipped. The export surface is byte-identical
+  with and without `-D LIB_NO_BARE_EXPORTS=1`.
+- `LIB_MLKEM_ABI_VERSION` moves only on a **breaking** export change. It went
+  1 → 2 at v0.4.0 for the bare-export removal; it did NOT move for v0.2.0
+  (additive) or v0.3.0 (implementation-only).
 - `src/lib_manifest.s` carries the §5 aggregates. Footprint equates are
   **safe-direction**: ≥ measured, rounded UP to the next 256-byte boundary.
   Refresh them from the map file (`make check-manifest`) at the end of every
