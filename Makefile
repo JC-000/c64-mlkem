@@ -31,6 +31,44 @@ CA65FLAGS          ?=
 CONTRACT_DEFINES   ?=
 CONTRACT_ZP_DEFINES ?=
 
+# --- §6.3 configuration invalidation (contract v0.11.1) --------------------
+#
+# The defines above reach the ca65 command lines, but they are not prerequisites
+# of anything, so over a WARM tree make sees no reason to rebuild and ships the
+# previously-configured artifact with exit 0 and no diagnostic. Measured here
+# before the fix: `make CONTRACT_ZP_DEFINES="-D mlkem_zp_src=0x40"` after a
+# default build answered "Nothing to be done" and left the slot at $30. That is
+# the chacha#86 shape — §6.3's invalidation branch, not its rejection branch,
+# because these are configuration knobs the targets CAN honor.
+#
+# Fix: a stamp holds the configuration signature, compared at parse time. When
+# it DIFFERS the stale objects are deleted outright, so:
+#   - a changed knob invalidates every object (the artifact flips), and
+#   - an unchanged knob touches nothing (no spurious rebuild).
+#
+# Deleting rather than making the objects depend on a stamp file is deliberate,
+# and the obvious "simplification" back to a timestamp prerequisite silently
+# reintroduces the bug on this platform. macOS ships **GNU Make 3.81**, whose
+# mtime comparison has 1-second granularity: a stamp rewritten in the same
+# second as the objects it should invalidate compares as not-newer, so nothing
+# rebuilds. Measured here — stamp and object both at mtime 1787521864, content
+# changed, zero ca65 invocations.
+# Both properties matter. §6.3 is explicit that a guard which has quietly
+# degraded to an unconditional rebuild still passes a check that only exercises
+# the change-rebuilds leg, which is why `make check-staleness` asserts both.
+CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
+CONFIG_STAMP = build/.config-sig
+
+# Run at PARSE time, deliberately — not from a recipe. By the time a recipe
+# runs, make has already stat'd its targets and decided what is up to date;
+# deleting the PRG from a recipe then leaves make convinced it still exists and
+# the link is skipped, producing no output file at all (measured).
+_ := $(shell \
+  if [ -f build/.config-sig ] && [ "$$(cat build/.config-sig)" != '$(CONFIG_SIG)' ]; then \
+    rm -rf build/obj build/tobj build/mlkem.prg build/labels.txt build/mlkem.map; \
+  fi; \
+  mkdir -p build 2>/dev/null; printf '%s' '$(CONFIG_SIG)' > build/.config-sig)
+
 SRC_DIR   = src
 CFG_DIR   = cfg
 TOOLS_DIR = tools
@@ -103,7 +141,7 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full bench tables lib lib-keccak \
-        check-manifest check-archives vectors help
+        check-manifest check-archives check-staleness vectors help
 
 all: $(PRG)
 
@@ -178,6 +216,11 @@ check-archives: lib lib-keccak
 	done; \
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
 
+# §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
+# has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
+check-staleness:
+	@$(TOOLS_DIR)/check_staleness.sh
+
 # Reports measured segment sizes so the §5 footprint equates can be refreshed
 # safe-direction (>= measured, rounded UP to the next 256-byte boundary).
 check-manifest: $(PRG)
@@ -205,7 +248,7 @@ test-sha3-full: $(PRG)
 
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
-test: test-ref test-vice test-sha3 check-archives
+test: test-ref test-vice test-sha3 check-archives check-staleness
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a

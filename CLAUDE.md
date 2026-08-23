@@ -113,6 +113,28 @@ step names its round and its step mapping instead of producing a wrong digest.
 round constants, pi destinations and rho decomposition all come from the
 validated model, so a transcription slip is impossible by construction.
 
+## Build-configuration invalidation (§6.3, contract v0.11.1)
+
+`CONTRACT_DEFINES` / `CONTRACT_ZP_DEFINES` must invalidate what they
+reconfigure. Without that, a warm tree answers "Nothing to be done", exits 0
+and ships the previously-configured artifact — the chacha#86 shape. This repo
+had the bug; `make check-staleness` is the regression guard.
+
+Two things about the fix that will look like over-engineering and are not:
+
+- **The check runs at PARSE time, not from a recipe.** By the time a recipe
+  runs, make has already stat'd its targets. Deleting the PRG from a recipe
+  leaves make convinced it still exists, so the link is skipped and the build
+  produces *no output file at all*. Measured.
+- **It deletes stale objects rather than depending on a stamp file.** macOS
+  ships **GNU Make 3.81**, whose mtime comparison has 1-second granularity, so
+  a stamp rewritten in the same second as the objects it should invalidate
+  compares as not-newer and nothing rebuilds. Also measured.
+
+`check-staleness` asserts **both** legs — changed knob flips the artifact, and
+unchanged knob rebuilds nothing. §6.3 is explicit that leg 1 alone passes on a
+guard that has degraded to an unconditional rebuild.
+
 ## Tests
 
 - `test_*.py` = runnable-by-CI logic tests; `rig_*.py` = needs real hardware.
