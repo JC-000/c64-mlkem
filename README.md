@@ -4,7 +4,7 @@ ML-KEM (FIPS 203) for the Commodore 64, in ca65 assembly.
 
 Part of the [JC-000](https://github.com/JC-000) 6502 crypto library ecosystem
 and conformant to [c64-lib-contract](https://github.com/JC-000/c64-lib-contract)
-**v0.10.6**. Precalculated-table enumeration per §8.0:
+**v0.11.0**. Precalculated-table enumeration per §8.0:
 [`docs/precalc-tables.md`](docs/precalc-tables.md) — nothing in this library
 clears the §8.0 floor.
 
@@ -272,13 +272,14 @@ at any stage.
 Per contract §6.1, where SPEC and the handoff disagree, **SPEC wins**; the
 differences are recorded here.
 
-| # | Handoff says | SPEC v0.10.6 / reality | Resolution |
+| # | Handoff says | SPEC v0.11.0 / reality | Resolution |
 |---|---|---|---|
-| 1 | pin contract "v0.10.3 as of 2026-08-15" | newest release is **v0.10.6**, whose SPEC.md self-declares `Version: 0.10.6 (2026-08-15)`. The local clone's tags were stale until `git fetch --tags`. | pinned v0.10.6 |
+| 1 | pin contract "v0.10.3 as of 2026-08-15" | the tag named in the brief was already superseded when it was written, and the local clone's tags were stale again until `git fetch --tags` | pinned **v0.11.0**; was v0.10.6 through c64-mlkem v0.3.0 |
 | 2 | three manifest equates (`RESIDENT_BYTES`, `ZP_USAGE_BYTES`, `REU_BANKS_USED`) | §5 requires a **fourth**, `LIB_MLKEM_COLD_BYTES`, and §6.6 imports it as a pair with `RESIDENT_BYTES` | all four exported |
 | 3 | consumers relocate ZP slots "via `--asm-define`" | §2 makes **`-D`** normative. `--asm-define` is `cl65`'s spelling; `ca65 --asm-define` fails with `Unknown option` | docs use `-D` |
 | 4 | archive under `build/lib/` (basename unstated) | §6.1 canonicalises `<shortname>.a` | `build/lib/mlkem.a`, `mlkem-keccak.a` |
-| 5 | — | §2's ZP prefix registry and §10 adopters table do not yet list this library | upstream PRs to c64-lib-contract pending |
+| 5 | — | §2's ZP prefix registry and §10 adopters table did not list this library | **resolved** — `mlkem_` registered and the adopters row landed in contract [v0.10.7](https://github.com/JC-000/c64-lib-contract/releases/tag/v0.10.7) ([PR #123](https://github.com/JC-000/c64-lib-contract/pull/123)) |
+| 6 | brief is silent on the deprecated bare `LIB_VERSION_*` exports; §1 made them a `MUST` | contract **v0.11.0** carves out libraries with no released consumers ([PR #125](https://github.com/JC-000/c64-lib-contract/pull/125)) | this library exports **only** the prefixed forms as of v0.4.0 |
 
 ---
 

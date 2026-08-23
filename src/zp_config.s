@@ -2,7 +2,7 @@
 
 ; =============================================================================
 ; zp_config.s — public zero-page slot inventory for c64-mlkem.
-; c64-lib-contract §2 (SPEC v0.10.6).
+; c64-lib-contract §2 (SPEC v0.11.0).
 ;
 ; DELIVERY MODEL: consumer-assembled source (§6.2's recommended shape for new
 ; libraries). This file is NOT a member of any build/lib/*.a archive. Archive

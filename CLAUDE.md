@@ -56,7 +56,7 @@ figure derived from the old estimate is void.
 
 ## Contract obligations that bind file layout
 
-Contract is **v0.10.6**; `git -C ../c64-lib-contract fetch --tags` before
+Contract is **v0.11.0**; `git -C ../c64-lib-contract fetch --tags` before
 checking, the local tags go stale. Prefix `<X>` = `MLKEM`, shortname `mlkem`.
 
 - `src/lib_version.s` exports the four §1 version equates and **nothing else** —

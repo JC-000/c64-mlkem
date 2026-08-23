@@ -1,7 +1,7 @@
 .setcpu "6502"
 
 ; =============================================================================
-; c64-mlkem aggregate manifest — c64-lib-contract §5 (SPEC v0.10.6).
+; c64-mlkem aggregate manifest — c64-lib-contract §5 (SPEC v0.11.0).
 ;
 ; Split from src/lib_version.s per §1 TU isolation: ld65 links whole archive
 ; members, so the §5 aggregates a consumer legitimately imports must not share

@@ -1,7 +1,7 @@
 .setcpu "6502"
 
 ; =============================================================================
-; c64-mlkem library version constants — c64-lib-contract §1 (SPEC v0.10.6).
+; c64-mlkem library version constants — c64-lib-contract §1 (SPEC v0.11.0).
 ;
 ; TU-ISOLATION RULE (§1): this translation unit exports the four §1 version
 ; equates and NOTHING else. ld65 links whole archive members, so if the
@@ -37,12 +37,17 @@
 ;   1  v0.3.0  rho+pi optimisation. Pure implementation change: no export
 ;              added, removed or renamed, and no calling convention touched,
 ;              so the counter again does not move.
+;   2  v0.4.0  BREAKING: the four deprecated bare exports were removed under
+;              the contract v0.11.0 §1 zero-consumer carve-out. A removed
+;              export is exactly what this counter is for, so it moves for the
+;              first time. Free in practice — the library had no consumers to
+;              break, which is the whole argument for doing it now.
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
-LIB_MLKEM_VERSION_MINOR = 3
+LIB_MLKEM_VERSION_MINOR = 4
 LIB_MLKEM_VERSION_PATCH = 0
-LIB_MLKEM_ABI_VERSION   = 1
+LIB_MLKEM_ABI_VERSION   = 2
 
 ; `: abs` is required, not decorative. These values fit in a byte, so ca65
 ; infers ZEROPAGE without the hint, while a consumer's .import defaults to
@@ -53,20 +58,25 @@ LIB_MLKEM_ABI_VERSION   = 1
 .export LIB_MLKEM_VERSION_PATCH: abs
 .export LIB_MLKEM_ABI_VERSION:   abs
 
-.ifndef LIB_NO_BARE_EXPORTS
-; Deprecated bare forms (contract v0.7.0; removed at contract v1.0). Identical
-; across every contract library, so a consumer composing two or more libraries
-; suppresses them build-wide with `ca65 -D LIB_NO_BARE_EXPORTS=1` and imports
-; the prefixed forms only. Aliased to the prefixed equates rather than
-; restating the literals: a release bump touches the four lines above, and the
-; two forms cannot drift (§1).
-LIB_VERSION_MAJOR = LIB_MLKEM_VERSION_MAJOR
-LIB_VERSION_MINOR = LIB_MLKEM_VERSION_MINOR
-LIB_VERSION_PATCH = LIB_MLKEM_VERSION_PATCH
-LIB_ABI_VERSION   = LIB_MLKEM_ABI_VERSION
-
-.export LIB_VERSION_MAJOR: abs
-.export LIB_VERSION_MINOR: abs
-.export LIB_VERSION_PATCH: abs
-.export LIB_ABI_VERSION:   abs
-.endif
+; NO DEPRECATED BARE EXPORTS — c64-lib-contract §1 zero-consumer carve-out
+; (contract v0.11.0).
+;
+; §1 requires every library to ALSO export the unprefixed LIB_VERSION_MAJOR /
+; _MINOR / _PATCH / LIB_ABI_VERSION, and states its own reason: so *existing*
+; single-library consumers keep working unchanged. c64-mlkem had no released
+; consumers when it onboarded, so those exports would have protected nobody
+; while adding a fifth claimant to the exact four names that produce
+; contract#43's `ld65: Error: Duplicate external identifier` in any link that
+; composes two libraries.
+;
+; The carve-out (contract PR #125) lets such a library omit them. This one is
+; therefore born in the state every other library reaches at contract v1.0, and
+; never has to make the removal.
+;
+; A consumer imports the PREFIXED forms only:
+;   .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
+;   .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 4), lderror, "needs c64-mlkem v0.4+"
+;
+; Nothing here is gated on LIB_NO_BARE_EXPORTS. Passing `-D LIB_NO_BARE_EXPORTS=1`
+; remains harmless and is still the right thing for a composing consumer to do
+; build-wide — it simply has no effect on this library.
