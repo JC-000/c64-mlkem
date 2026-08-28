@@ -143,6 +143,78 @@
       "description": "mlkem_byte_encode_12: middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4",
       "expect": "mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1",
       "class": "order"
+    },
+    {
+      "name": "wp3-skip-rejection-compare",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only decaps,onebit",
+      "description": "mlkem_decaps: the c == c' compare result is ignored and K' is always returned (implicit rejection never taken)",
+      "expect": "mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z||c)) differs at byte 0",
+      "class": "logic"
+    },
+    {
+      "name": "wp3-early-exit-compare",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only timing,onebit",
+      "description": "mlkem_decaps: the 1,088-byte c == c' compare returns on the FIRST mismatching byte instead of OR-accumulating over the full length (functionally correct; timing leaks where the ciphertext was tampered)",
+      "expect": "mlkem_decaps: constant-time in c (T1)",
+      "class": "timing"
+    },
+    {
+      "name": "wp3-swap-du-dv",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only encaps,hooks",
+      "description": "K-PKE.Encrypt: u compressed with d_v=4 / v with d_u=10 (the two compress calls, or their table rows, exchanged)",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte 0",
+      "class": "order"
+    },
+    {
+      "name": "wp3-prf-nonce-stuck",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "description": "K-PKE.KeyGen / Encrypt: the PRF nonce byte N is not incremented between polynomials (s[1] == s[0], e[0] == s[0] ...)",
+      "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
+      "class": "counter"
+    },
+    {
+      "name": "wp3-g-missing-k",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "description": "K-PKE.KeyGen: (rho, sigma) = G(d) instead of G(d || k) - the 33rd byte 0x03 is not absorbed (Kyber-round-3 behaviour)",
+      "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
+      "class": "domain-separation"
+    },
+    {
+      "name": "wp3-h-ek-wrong-length",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen",
+      "description": "ML-KEM.KeyGen: the H(ek) field of dk is SHA3-256 over 1,152 bytes of ek (t_hat only, rho omitted) instead of all 1,184",
+      "expect": "mlkem_keygen [keyGen tcId 26]: dk differs at byte 2336",
+      "class": "length"
+    },
+    {
+      "name": "wp3-ek-check-missing",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only ekcheck",
+      "description": "mlkem_encaps: the per-coefficient < q check on the decoded t_hat is removed (always A=0). Blind to re-encode-and-compare because byte_decode_12 is a raw pass-through - exactly why the check must be an explicit compare",
+      "expect": "accepted an ek with a coefficient >= q",
+      "class": "bound"
+    },
+    {
+      "name": "wp3-m-not-hashed",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only encaps",
+      "description": "mlkem_encaps: (K, r) = G(H(m) || H(ek)) - m is hashed before G, Kyber-round-3 behaviour; FIPS 203 Alg. 17 uses m directly",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
+      "class": "domain-separation"
     }
   ]
 }
