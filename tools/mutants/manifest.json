@@ -74,7 +74,7 @@
     },
     {
       "name": "wp2-cbd-short",
-      "patch": null,
+      "patch": "wp2-cbd-short.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only cbd",
       "description": "mlkem_sample_cbd2: loop consumes 127 of the 128 PRF bytes (last two coefficients never written)",
@@ -83,7 +83,7 @@
     },
     {
       "name": "wp2-compress-floor",
-      "patch": null,
+      "patch": "wp2-compress-floor.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only compress",
       "description": "mlkem_compress_10: drop the +q/2 (round-half-up) term so compress computes floor(2^d*x/q)",
@@ -92,16 +92,16 @@
     },
     {
       "name": "wp2-compress-floor-4",
-      "patch": null,
+      "patch": "wp2-compress-floor-4.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only compress",
-      "description": "mlkem_compress_4: same as wp2-compress-floor for d=4 (a separate routine or table row)",
+      "description": "mlkem_compress_4: no separate routine exists (one shared body, per-d parameter rows), so the nearest same-class fault: the d=4 parameter row runs one correction short (K=1 instead of 2), flooring some quotients for d=4 only",
       "expect": "mlkem_compress_4 [boundaries 0..]",
       "class": "rounding"
     },
     {
       "name": "wp2-decompress-shift",
-      "patch": null,
+      "patch": "wp2-decompress-shift.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only decompress",
       "description": "mlkem_decompress_10: rounding constant one bit short: add 2^(d-2) instead of 2^(d-1) before the >> d",
@@ -110,7 +110,7 @@
     },
     {
       "name": "wp2-decompress-shift-1",
-      "patch": null,
+      "patch": "wp2-decompress-shift-1.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only decompress",
       "description": "mlkem_decompress_1: decompress_1 returns floor(q/2)=1664 for y=1 instead of round(q/2)=1665",
@@ -119,7 +119,7 @@
     },
     {
       "name": "wp2-sample-ntt-accept-q",
-      "patch": null,
+      "patch": "wp2-sample-ntt-accept-q.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only sample_ntt",
       "description": "mlkem_sample_ntt: rejection test uses d <= q instead of d < q (a candidate equal to 3329 is accepted)",
@@ -128,21 +128,129 @@
     },
     {
       "name": "wp2-sample-ntt-d2-after-full",
-      "patch": null,
+      "patch": "wp2-sample-ntt-d2-after-full.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only sample_ntt",
-      "description": "mlkem_sample_ntt: drop the j < 256 guard on d2 so a valid d2 is stored after the 256th coefficient",
-      "expect": "wrote past the 512-byte output buffer",
+      "description": "mlkem_sample_ntt: the j == 256 stop between d1 and d2 is dropped, so a valid d2 is stored after the 256th coefficient. This implementation indexes with 8-bit Y, so the store lands at index 0 (wrap) rather than past the buffer, and sampling runs on until Y wraps again",
+      "expect": "mlkem_sample_ntt [256th coeff is d1, d2 < q must be dropped",
       "class": "bound"
     },
     {
       "name": "wp2-encode-nibble-swap",
-      "patch": null,
+      "patch": "wp2-encode-nibble-swap.patch",
       "test": "make test-sampler",
       "kill": "tools/test_sampler.py --only encode",
       "description": "mlkem_byte_encode_12: middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4",
-      "expect": "mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1",
+      "expect": "mlkem_byte_encode_12 [nibble-asymmetric 0x3A5 / 0x5AC]: byte index 1",
       "class": "order"
+    },
+    {
+      "name": "wp2-cbd-nibble-order",
+      "patch": "wp2-cbd-nibble-order.patch",
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only cbd",
+      "description": "mlkem_sample_cbd2: the high nibble is taken for coefficient 2k and the low nibble for 2k+1 (FIPS 203 Alg. 8 bit order reversed within a byte)",
+      "expect": "mlkem_sample_cbd2 [0x03 (x=2,y=0 -> +2 in even coeffs)]: index 0: got 0 want 2",
+      "class": "order"
+    },
+    {
+      "name": "wp2-sample-ntt-block-short",
+      "patch": "wp2-sample-ntt-block-short.patch",
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only sample_ntt",
+      "description": "mlkem_sample_ntt: the 168-byte block is consumed as 55 triples (165 B) so the last triple of every squeezed block is skipped; coefficients after the first block boundary shift",
+      "expect": "mlkem_sample_ntt [needs 4 blocks (510 B > 504)",
+      "class": "off-by-one"
+    },
+    {
+      "name": "wp2-decode-reduces-mod-q",
+      "patch": "wp2-decode-reduces-mod-q.patch",
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only decode",
+      "description": "mlkem_byte_decode_12: a field >= q is reduced mod q (FIPS 203 Alg. 6 read literally), violating the raw pass-through pin that WP3's explicit < q ek check depends on",
+      "expect": "mlkem_byte_decode_12 [all fields 0xFFF (>= q, raw)]: index 0: got 766 want 4095",
+      "class": "bound"
+    },
+    {
+      "name": "wp2-compress-stale-hi",
+      "patch": "wp2-compress-stale-hi.patch",
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only compress",
+      "description": "compress_common: the high plane of the output polynomial is never written (stale bytes for d <= 8, wrong for d = 10)",
+      "expect": "mlkem_compress_1 [boundaries 0..]: index 0",
+      "class": "layout"
+    },
+    {
+      "name": "wp3-skip-rejection-compare",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only decaps,onebit",
+      "description": "mlkem_decaps: the c == c' compare result is ignored and K' is always returned (implicit rejection never taken)",
+      "expect": "mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z||c)) differs at byte 0",
+      "class": "logic"
+    },
+    {
+      "name": "wp3-early-exit-compare",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only timing,onebit",
+      "description": "mlkem_decaps: the 1,088-byte c == c' compare returns on the FIRST mismatching byte instead of OR-accumulating over the full length (functionally correct; timing leaks where the ciphertext was tampered)",
+      "expect": "mlkem_decaps: constant-time in c (T1)",
+      "class": "timing"
+    },
+    {
+      "name": "wp3-swap-du-dv",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only encaps,hooks",
+      "description": "K-PKE.Encrypt: u compressed with d_v=4 / v with d_u=10 (the two compress calls, or their table rows, exchanged)",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte 0",
+      "class": "order"
+    },
+    {
+      "name": "wp3-prf-nonce-stuck",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "description": "K-PKE.KeyGen / Encrypt: the PRF nonce byte N is not incremented between polynomials (s[1] == s[0], e[0] == s[0] ...)",
+      "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
+      "class": "counter"
+    },
+    {
+      "name": "wp3-g-missing-k",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "description": "K-PKE.KeyGen: (rho, sigma) = G(d) instead of G(d || k) - the 33rd byte 0x03 is not absorbed (Kyber-round-3 behaviour)",
+      "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
+      "class": "domain-separation"
+    },
+    {
+      "name": "wp3-h-ek-wrong-length",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only keygen",
+      "description": "ML-KEM.KeyGen: the H(ek) field of dk is SHA3-256 over 1,152 bytes of ek (t_hat only, rho omitted) instead of all 1,184",
+      "expect": "mlkem_keygen [keyGen tcId 26]: dk differs at byte 2336",
+      "class": "length"
+    },
+    {
+      "name": "wp3-ek-check-missing",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only ekcheck",
+      "description": "mlkem_encaps: the per-coefficient < q check on the decoded t_hat is removed (always A=0). Blind to re-encode-and-compare because byte_decode_12 is a raw pass-through - exactly why the check must be an explicit compare",
+      "expect": "accepted an ek with a coefficient >= q",
+      "class": "bound"
+    },
+    {
+      "name": "wp3-m-not-hashed",
+      "patch": null,
+      "test": "make test-mlkem",
+      "kill": "tools/test_mlkem.py --only encaps",
+      "description": "mlkem_encaps: (K, r) = G(H(m) || H(ek)) - m is hashed before G, Kyber-round-3 behaviour; FIPS 203 Alg. 17 uses m directly",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
+      "class": "domain-separation"
     }
   ]
 }

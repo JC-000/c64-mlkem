@@ -1,0 +1,11 @@
+--- a/src/sample.s
++++ b/src/sample.s
+@@ -142,7 +142,7 @@
+         inx
+         inx
+         inx
+-        cpx #SHAKE128_RATE
++        cpx #SHAKE128_RATE-3        ; MUTANT: last triple of each block skipped
+         bne triple
+         sty sn_j
+         jmp refill

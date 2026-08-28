@@ -1,0 +1,11 @@
+--- a/src/sample.s
++++ b/src/sample.s
+@@ -115,7 +115,7 @@
+         lda sn_buf+1,x
+         and #$0F
+         jsr try_accept
+-        beq done                    ; Y wrapped: 256 coefficients written
++        ; MUTANT: no j == 256 stop between d1 and d2
+ 
+         ; d2 = (c1 >> 4) | c2 << 4
+         lda sn_buf+1,x

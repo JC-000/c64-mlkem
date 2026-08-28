@@ -1,0 +1,11 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -94,7 +94,7 @@
+ dc_params:
+         .byte 1, 0, $01, $00                ; d = 1
+         .byte 4, 0, $08, $00                ; d = 4
+-        .byte 2, 1, $00, $02                ; d = 10
++        .byte 2, 1, $00, $01                ; d = 10  MUTANT: 2^(d-2)
+ 
+ ; T_hi_d[h] = floor(h * 256 * 2^d / q), h = 0..13 (x < q => x >> 8 <= 13).
+ ; All three d share one lo-byte table and one hi-byte table, indexed by

@@ -426,7 +426,7 @@ def _encode_vectors(full):
         ("0 / q-1 alternating (even=0)", [0 if i % 2 == 0 else Q - 1 for i in range(N)]),
         ("0 / q-1 alternating (even=q-1)", [Q - 1 if i % 2 == 0 else 0 for i in range(N)]),
         ("position identity 13*i (all distinct)", [13 * i for i in range(N)]),
-        ("nibble-asymmetric 0x0A5 / 0x5A0", [0x0A5 if i % 2 == 0 else 0x5A0 for i in range(N)]),
+        ("nibble-asymmetric 0x3A5 / 0x5AC", [0x3A5 if i % 2 == 0 else 0x5AC for i in range(N)]),
         ("powers of two", [(1 << (i % 12)) for i in range(N)]),
     ]
     for n in range(4 if full else 2):

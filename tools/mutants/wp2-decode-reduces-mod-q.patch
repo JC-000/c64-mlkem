@@ -1,0 +1,34 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -531,6 +531,21 @@
+         lsr
+         lsr
+         sta cd_b+1
++        ; MUTANT: Alg. 6 literal mod q on a (violates the raw pass-through pin)
++        lda cd_a+1
++        cmp #$0D
++        bcc nored
++        bne red
++        lda cd_a+0
++        beq nored
++red:    lda cd_a+0
++        sec
++        sbc #$01
++        sta cd_a+0
++        lda cd_a+1
++        sbc #$0D
++        sta cd_a+1
++nored:
+ 
+         lda cd_k
+         asl
+@@ -556,6 +571,7 @@
+         inc cd_k
+         lda cd_k
+         cmp #PAIRS_12
+-        bne triple
+-        rts
++        beq :+                      ; (loop widened for the mutant's extra bytes)
++        jmp triple
++:       rts
+ .endproc

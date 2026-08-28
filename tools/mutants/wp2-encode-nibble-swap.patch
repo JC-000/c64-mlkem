@@ -1,0 +1,18 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -449,13 +449,13 @@
+         lda cd_a+0
+         sta (mlkem_zp_dst),y
+         iny
+-        lda cd_b+0
++        lda cd_a+1                  ; MUTANT: nibbles swapped
+         asl
+         asl
+         asl
+         asl
+         sta cd_t
+-        lda cd_a+1
++        lda cd_b+0
+         and #$0F
+         ora cd_t
+         sta (mlkem_zp_dst),y

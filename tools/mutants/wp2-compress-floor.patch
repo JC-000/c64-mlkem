@@ -1,0 +1,15 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -260,10 +260,10 @@
+         bne :-
+         lda cp_v+0
+         clc
+-        adc #<MLKEM_Q_HALF
++        adc #0                      ; MUTANT: no round-half-up term
+         sta cp_v+0
+         lda cp_v+1
+-        adc #>MLKEM_Q_HALF
++        adc #0
+         sta cp_v+1
+ 
+         ; --- y_e = T_lo[(xlo >> 2) & lomask] + T_hi[hibase + xhi] ----------

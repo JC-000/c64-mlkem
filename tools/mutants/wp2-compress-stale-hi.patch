@@ -1,0 +1,12 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -342,7 +342,8 @@
+         sta (mlkem_zp_dst),y
+         lda cp_y+1
+         and cp_mask_hi
+-        sta (mlkem_zp_len),y
++        nop                         ; MUTANT: high plane never written (same size)
++        nop
+         iny
+         beq done                    ; body is longer than a branch reaches
+         jmp coef

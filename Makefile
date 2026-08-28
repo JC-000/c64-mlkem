@@ -120,7 +120,12 @@ TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 #                  slot; the consumer assembles src/zp_config.s themselves
 #     sqtab.s      §8.1 mul_tables_init (owner build) / import (deferring)
 #     ntt.s        P2 WP1: mod-3329 arithmetic, NTT/INTT/basemul, R tables
-LIB_SRCS = lib_version lib_manifest state keccak sponge sqtab ntt
+LIB_SRCS = lib_version lib_manifest state keccak sponge sqtab ntt $(WP2_SRCS)
+
+# P2 / WP2: samplers (SampleNTT, CBD) and codecs (ByteEncode/Decode12,
+# Compress/Decompress). Listed once, here, so the archive and the test PRG
+# cannot disagree about them.
+WP2_SRCS = sample codec
 
 # The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge)
 # only. Diverged from LIB_SRCS at P2 WP1. NOTE (WP4): mlkem_lib_manifest.o now
@@ -148,7 +153,8 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
-        test-sampler test-sampler-full test-mutants bench tables lib lib-keccak \
+        test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
+        bench bench-sampler tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix vectors help
 
 all: $(PRG)
@@ -298,6 +304,17 @@ test-sampler: $(PRG)
 test-sampler-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py --full
 
+# WP3 K-PKE + ML-KEM-768 KeyGen/Encaps/Decaps against ACVP, hazmat and
+# tools/mlkem_ref.py, plus the constant-time decaps check (red-first:
+# tools/test_mlkem.py documents the assumed ABI and parameter block at its
+# top). RED until WP3 lands. Not in `test` yet; the supervisor adds it at the
+# WP3 merge. --full runs every ACVP vector (~150 calls of 10-40M cycles).
+test-mlkem: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py
+
+test-mlkem-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full
+
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
 test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
@@ -307,6 +324,11 @@ test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
 # routine of known cost and refuses to report a Keccak number if that fails.
 bench: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_keccak.py
+
+# WP2 samplers/codecs: cycles per routine with the same calibrated instrument,
+# plus a constant-time check (four inputs each must measure identically).
+bench-sampler: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_sampler.py
 
 # Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
 # constants from the validated models.
@@ -331,7 +353,9 @@ help:
 	@echo "make test-ntt     WP1 NTT/field tests in VICE (add -full for the sweep)"
 	@echo "make test-mutants mutation gate over tools/mutants/manifest.json"
 	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
+	@echo "make test-mlkem   WP3 K-PKE/ML-KEM KATs + hazmat + CT decaps in VICE (add -full)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
+	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"

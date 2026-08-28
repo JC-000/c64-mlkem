@@ -1,0 +1,14 @@
+--- a/src/sample.s
++++ b/src/sample.s
+@@ -195,7 +195,10 @@
+         tay                         ; Y = 2k (k <= 127, no wrap)
+ 
+         lda cbd_byte
+-        and #$0F
++        lsr
++        lsr
++        lsr
++        lsr                         ; MUTANT: high nibble first
+         tax
+         lda mlkem_cbd2_lo,x
+         sta (mlkem_zp_dst),y

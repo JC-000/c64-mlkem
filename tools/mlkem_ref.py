@@ -517,12 +517,15 @@ def poly_to_c64(f):
     (coefficient i at offset i) followed by 256 high bytes (coefficient i's
     bits 8..11 at offset 256 + i), each plane page-aligned in BSS, so a
     coefficient is `lda lo,x` / `lda hi,x` with one index register and no
-    doubling. Coefficients are the canonical representatives in [0, q).
+    doubling. Library outputs are the canonical representatives in [0, q),
+    but this conversion accepts the full unsigned 16-bit range: the harness
+    deliberately feeds mlkem_poly_reduce unreduced inputs up to 0xFFFF
+    (test_ntt.py S2), and poly_from_c64 is symmetric in not reducing.
 
     The NTT implementer (WP1) owns this choice and declares it once in
     src/mlkem.inc; if it changes, change it HERE and nowhere else — this
     function and poly_from_c64 are the only place the harness converts."""
-    assert len(f) == N and all(0 <= x < Q for x in f)
+    assert len(f) == N and all(0 <= x < 0x10000 for x in f)
     return bytes(x & 0xFF for x in f) + bytes(x >> 8 for x in f)
 
 
