@@ -87,3 +87,47 @@ LIB_MLKEM_SHARED_CONSUMES   = 0
 .export LIB_MLKEM_REU_BANKS_USED:    abs
 .export LIB_MLKEM_SHARED_PRIMITIVES: abs
 .export LIB_MLKEM_SHARED_CONSUMES:   abs
+
+; =============================================================================
+; c64-lib-contract §8.4 catch-loop: precalc-table enumeration
+; =============================================================================
+;
+; src/precalc_table.inc is copied BYTE-FOR-BYTE from the contract repo root
+; (`cmp src/precalc_table.inc ../c64-lib-contract/precalc_table.inc`); never
+; edit the local copy. §8.4 requires it to be .include'd from exactly ONE
+; translation unit, and this manifest TU is that unit (the c64-x25519 shape:
+; the §5 aggregates, the §8.0 masks and the §8.4 enumeration share one member,
+; so a consumer importing any of them pulls in the same, deliberately
+; export-only object).
+;
+; NO BARE `LIB_PRECALC_<name>_*` EXPORTS — ever. The macro emits the deprecated
+; unprefixed triple unless LIB_NO_BARE_EXPORTS is defined. This library ships
+; no bare exports of any kind (the §1 zero-consumer carve-out it was first to
+; take; CLAUDE.md standing invariant: the export surface is byte-identical with
+; and without `-D LIB_NO_BARE_EXPORTS=1`). Defining the switch HERE, before the
+; include, keeps that true once P2 adds rows: only the `LIB_MLKEM_PRECALC_*`
+; family is ever emitted, and `make check-prefix` fails the build if a bare
+; form leaks. (§8.4 has no written zero-consumer carve-out of its own — §1's
+; reasoning applies verbatim; see docs/contract-p2-alignment.md §5.)
+.ifndef LIB_NO_BARE_EXPORTS
+LIB_NO_BARE_EXPORTS = 1
+.endif
+
+.include "precalc_table.inc"
+
+; P1 (v0.4.x): ZERO invocations — no table clears the §8.4 floor (largest is
+; the 192 B round-constant sequence). docs/precalc-tables.md agrees, in both
+; directions, as the intake rule requires.
+;
+; P2 (pending — see docs/precalc-tables.md "P2 (pending)" and
+; docs/contract-p2-alignment.md §4 for the exact rows). Planned, to be
+; uncommented by the WP that lands each table, in lock-step with the doc row:
+;
+;   LIB_PRECALC_TABLE "sqtab",      1024, PRECALC_REGION_RAM,    PRECALC_SHARED_YES, "MLKEM"
+;   LIB_PRECALC_TABLE "mlkem_zetas", 256, PRECALC_REGION_RODATA, PRECALC_SHARED_NO,  "MLKEM"
+;
+; "sqtab" is §8.1-normative and MUST NOT be prefixed; the library prefix goes
+; in the fifth argument only. The sqtab row is emitted only when
+; LIB_MLKEM_SHARED_CONSUMES carries LIB_SHARED_PRIMITIVES_SQTAB (it is the
+; §8.0 "consumption surface" of a deferring build too, so it is NOT gated on
+; SHARED_SQTAB_INIT).
