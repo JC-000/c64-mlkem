@@ -44,3 +44,31 @@ byte-granular API cannot express and does not claim to support.
 - SHAKE Monte Carlo reports `Outputlen` as the length of the **reported**
   output, not the next chained length — an off-by-one that made the first draft
   of `test_keccak_ref.py` fail. See the comment there for the full chaining rule.
+
+## ML-KEM-768 — NIST ACVP (FIPS 203)
+
+| File | Source | What it pins |
+|---|---|---|
+| `ML-KEM-768-keyGen-FIPS203.json` | `usnistgov/ACVP-Server`, `gen-val/json-files/ML-KEM-keyGen-FIPS203/internalProjection.json` | 25 AFT vectors `(d, z) -> (ek, dk)`: the whole K-PKE.KeyGen path — G(d‖k), SampleNTT's ρ‖j‖i ordering, CBD, NTT, ByteEncode₁₂ — and the dk = dk_pke‖ek‖H(ek)‖z layout. |
+| `ML-KEM-768-encapDecap-FIPS203.json` | same repo, `ML-KEM-encapDecap-FIPS203/internalProjection.json` | 25 AFT encapsulation vectors with `m` given (`m -> (K, c)` — determinism hazmat cannot check); 10 VAL decapsulation vectors, 5 valid and 5 **modified ciphertext** (implicit rejection: K = J(z‖c), silently); 10 VAL `encapsulationKeyCheck` (5 valid, 5 with a coefficient ≥ q — the §7.2 modulus check); 10 VAL `decapsulationKeyCheck` (5 valid, 5 with a modified H(ek) — the §7.3 hash check). |
+
+Both are `internalProjection.json` — the prompt and the expected results in
+one file — **filtered to the `ML-KEM-768` test groups only** by
+`tools/fetch_vectors.sh`, which otherwise passes the JSON through untouched.
+Filtered they total ~670 KB, so they are tracked; the unfiltered files carry
+all three parameter sets (~2 MB) and are not kept.
+
+Fetched from ACVP-Server commit **`975de31eb83d87039ec88934fdc47d8c312b892d`**
+(master head on 2026-08-28; last changes to the two directories were
+`15c0f3de`, 2026-04-16, and `ad33b3d9`, 2026-07-28). The commit is pinned in
+`fetch_vectors.sh`; `tools/fetch_vectors.sh -f` re-fetches. `vsId` is 42 in
+both files; the encapDecap file is marked `isSample: true` by NIST, which
+affects nothing about the vectors' validity.
+
+Parsing notes:
+
+- All fields are lowercase hex. `k` is the 32-byte shared secret.
+- Decapsulation vectors carry `dk` (and `ek`) per test, not per group, and a
+  human-readable `reason` (`valid decapsulation` / `modified ciphertext`).
+- The `*KeyCheck` groups have `testPassed` and no `k`/`c`: `false` means the
+  key must be rejected by the input check, not that a wrong key is fine.
