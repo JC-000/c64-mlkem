@@ -181,6 +181,16 @@
       "class": "layout"
     },
     {
+      "name": "wp2-rodata-align-reverted",
+      "patch": "wp2-rodata-align-reverted.patch",
+      "test": "make test-sampler",
+      "kill": "make",
+      "expect_build_fail": true,
+      "description": "codec.s: the WP1 merge fix reverted - all three `.align 64` before the secret-indexed compress tables removed, so a table straddles a page and its lderror .assert fails the LINK. The kill is the failed build (expect matched against build output). Removing a single directive is only caught when the layout happens to straddle (probed: cp_thi_lo tripped, cp_thi_hi and cp_tlo did not), so the gate mutates the whole fix.",
+      "expect": "straddles a page: compress cost would depend on secret data",
+      "class": "layout"
+    },
+    {
       "name": "wp3-skip-rejection-compare",
       "patch": null,
       "test": "make test-mlkem",

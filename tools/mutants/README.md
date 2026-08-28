@@ -42,7 +42,7 @@ The `bpl` mutant and the missing-final-reduce mutant are the two that a naive
 "compare modulo q at the end" suite lets through; they are why `test_ntt.py`
 compares **canonical values** and includes **all-0xFFFF / all-(q-1)** inputs.
 
-## Required WP2 mutants (samplers and codecs) — gate run, all 12 KILLED
+## Required WP2 mutants (samplers and codecs) — gate run, all 13 KILLED
 
 Same manifest, `"test": "make test-sampler"`. `expect` is a substring the
 failure output must contain, so the kill is *localised*, not incidental.
@@ -66,13 +66,31 @@ green source.
 | `wp2-sample-ntt-block-short` | *extra*: block consumed as 55 triples (`cpx #SHAKE128_RATE-3`), the last triple of every 168 B block skipped | `mlkem_sample_ntt [needs 4 blocks (510 B > 504) ...]: index 83` |
 | `wp2-decode-reduces-mod-q` | *extra*: Alg. 6 literal `mod q` on a decoded field — violates the raw pass-through pin WP3's explicit `< q` ek check relies on | `mlkem_byte_decode_12 [all fields 0xFFF (>= q, raw)]: index 0: got 766 want 4095` |
 | `wp2-compress-stale-hi` | *extra*: high plane of the compressed poly never written (same-size `nop` replacement) | `mlkem_compress_1 [boundaries 0..]: index 0: got 60928 want 0` |
+| `wp2-rodata-align-reverted` | *extra*, `"expect_build_fail": true`: all three `.align 64` before the compress tables removed (the WP1 merge fix reverted) | build fails at LINK: `straddles a page: compress cost would depend on secret data` |
+
+### Alignment mutants and `expect_build_fail`
+
+A page-straddle `.assert ..., lderror` is a *layout-conditional* guard: it
+fires only when the table actually crosses a page. Dropping a single
+`.align 64` is therefore not deterministically killable — probed against
+a9cc7f5: removing the one before `cp_thi_lo` tripped the assert, removing
+the one before `cp_thi_hi` or `cp_tlo` built and passed (those tables landed
+inside a page by luck). The gate mutates the whole fix instead, and the
+manifest row carries `"expect_build_fail": true`: `mutate.py` then counts a
+FAILED build whose output contains `expect` as the kill, a build that fails
+for another reason as `non-local-kill`, and a build that succeeds as
+`survived`. Without that flag a failed build is always reported as a stale
+patch.
+
 
 Two layout facts bit while writing these and will bite again: the
 secret-indexed tables carry page-straddle `.assert`s, so a patch that
 changes code size by even 8 bytes can move `LIB_MLKEM_RODATA` onto a page
 edge and fail the LINK (the slack in the green tree is +36 / -8 bytes) —
 prefer same-size replacements (`nop`), and widen a `bne` loop to
-`beq :+ / jmp` when a mutant's extra bytes push it out of range.
+`beq :+ / jmp` when a mutant's extra bytes push it out of range. (Since
+a9cc7f5 the three compress tables are `.align 64`, so only the 32-byte CBD
+tables in `sample.s` still move with code size.)
 
 One red-phase defect surfaced: the original `nibble-asymmetric 0x0A5 / 0x5A0`
 encode vector was *symmetric under the nibble swap* (both swapped nibbles

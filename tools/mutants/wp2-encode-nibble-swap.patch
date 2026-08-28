@@ -1,6 +1,6 @@
 --- a/src/codec.s
 +++ b/src/codec.s
-@@ -449,13 +449,13 @@
+@@ -452,13 +452,13 @@
          lda cd_a+0
          sta (mlkem_zp_dst),y
          iny
