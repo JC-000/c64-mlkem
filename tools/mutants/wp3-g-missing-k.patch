@@ -1,0 +1,15 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -727,7 +727,11 @@
+         SRC IDX_SEED, 0
+         ABSORB 32
+         SRCI k_byte
+-        ABSORB 1
++        lda #1                      ; MUTANT: the k byte is never absorbed (G(d), Kyber r3)
++        ldy #0
++        nop
++        nop
++        nop
+         DSTI kem_hb
+         SQUEEZE 64                  ; hb0 = rho, hb1 = sigma
+         PTRSETI IDX_RHO, kem_hb

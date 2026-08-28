@@ -1,0 +1,12 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -890,7 +890,8 @@
+ .proc mlkem_encaps
+         PTRSET IDX_IN, IDX_EK, 0
+         VEC >kem_pvb, el_dec12      ; t_hat (raw fields)
+-        jsr check_t
++        lda #0                      ; MUTANT: the section 7.2 modulus check is never run
++        nop
+         sta mlkem_status
+         beq ok
+         rts                         ; A = 1: rejected, nothing written

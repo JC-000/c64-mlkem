@@ -1,0 +1,13 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -782,8 +782,8 @@
+         jsr pacc_add_pt             ; v = t.y + e2 + mu
+         lda #>kem_pacc
+         jsr set_both
+-        jsr mlkem_compress_4
+-        lda #4
++        jsr mlkem_compress_10       ; MUTANT: v compressed with d = 10
++        lda #10
+         sta enc_d
+         lda #>kem_pacc
+         jmp enc_poly                ; c2

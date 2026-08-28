@@ -1,0 +1,14 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -962,8 +962,9 @@
+         sbc c_lo
+         ora c_lo
+         asl
+-        lda #0
+-        sbc #0
++        lda #$FF                    ; MUTANT: mask forced to $FF, K' always selected
++        nop
++        nop
+         sta c_hi                    ; mask
+         DST IDX_KEY, 0
+         ldy #31

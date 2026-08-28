@@ -133,32 +133,55 @@ Rules: one fault per patch; the mutant must **build** (a mutant that fails to
 assemble tests nothing); never touch `tools/test_*.py` or `tools/*_ref.py`
 from a patch.
 
-## Required WP3 mutants (K-PKE and ML-KEM-768)
+## Required WP3 mutants (K-PKE and ML-KEM-768) — gate run, all 17 KILLED
 
-Same manifest, `"test": "make test-mlkem"`. `kill` is the narrowest
-`tools/test_mlkem.py --only` invocation that must go red (each suite is
-tens of millions of cycles per call, so the gate need not run the lot);
-`expect` is the substring the failure output must contain, so the kill is
-localised to the primitive and vector it names. The ABI these rely on —
-the `mlkem_arg_*` parameter block, `A`/`mlkem_status` = 1 on an ek rejected
-by the §7.2 modulus check, no §7.3 check in `mlkem_decaps` — is documented at
-the top of `tools/test_mlkem.py`.
+Same manifest. Patches are written against `src/kem.s` as merged in 0996feb.
+Every `test` is `make test-mlkem MLKEM_ARGS="--only <suite>"` — the
+narrowest `tools/test_mlkem.py` suite that localises the fault — because a
+WP3 call is 10-40M cycles; the whole WP3 gate is ~2 minutes under warp.
+`expect` is a byte-exact substring of the failure line. The ABI these rely
+on — the `mlkem_arg_*` parameter block, `A`/`mlkem_status` = 1 on an ek
+rejected by the §7.2 modulus check, no §7.3 check in `mlkem_decaps` — is
+documented at the top of `tools/test_mlkem.py`. Nine adversarial extras came
+from reading the green source (the mask select, the compare accumulator,
+the pointer table, the nonce counter, the A^T index, `check_t`).
 
-| name | fault | kill / expected failure |
-|---|---|---|
-| `wp3-skip-rejection-compare` | `mlkem_decaps`: the c == c' result is ignored; K' is always returned | `--only decaps,onebit` → `mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z\|\|c)) differs at byte 0` |
-| `wp3-early-exit-compare` | `mlkem_decaps`: the 1,088-byte compare returns at the first mismatch instead of OR-accumulating the full length. Functionally correct. | `--only timing,onebit` → `mlkem_decaps: constant-time in c (T1)` — the valid c and the byte-0-flipped c measure different cycle counts |
-| `wp3-swap-du-dv` | K-PKE.Encrypt compresses u with d=4 and v with d=10 | `--only encaps,hooks` → `mlkem_encaps [encapsulation tcId 26]: c differs at byte 0`; the hook test also prints which of c1/c2 differs |
-| `wp3-prf-nonce-stuck` | the PRF nonce N is not incremented between polynomials | `--only keygen,hooks` → `mlkem_keygen [keyGen tcId 26]: ek differs at byte` |
-| `wp3-g-missing-k` | `(rho, sigma) = G(d)` — the k byte is not absorbed | `--only keygen,hooks` → `mlkem_keygen [keyGen tcId 26]: ek differs at byte` (byte 0: rho changes, so every t_hat coefficient does) |
-| `wp3-h-ek-wrong-length` | dk's H(ek) field hashes 1,152 B of ek instead of 1,184 | `--only keygen` → `mlkem_keygen [keyGen tcId 26]: dk differs at byte 2336` (ek and dk_pke fields are still exact, so the offset names the field) |
-| `wp3-ek-check-missing` | `mlkem_encaps` never rejects (the per-coefficient `< q` compare is gone). Invisible to a re-encode-and-compare check because `byte_decode_12` passes ≥ q fields through raw | `--only ekcheck` → `accepted an ek with a coefficient >= q` (the message names `t_hat[i][j]`) |
-| `wp3-m-not-hashed` | `(K, r) = G(H(m) ‖ H(ek))` — Kyber round 3, not FIPS 203 Alg. 17 | `--only encaps` → `mlkem_encaps [encapsulation tcId 26]: c differs at byte` and `K differs at byte 0` |
+| name | fault (what the patch does) | suite | localising failure line |
+|---|---|---|---|
+| `wp3-skip-rejection-compare` | the select mask is forced to `$FF` (`lda #$FF / nop / nop` for `lda #0 / sbc #0`): K' always | decaps | `mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z\|\|c)) differs at byte 0 (got AA want 2C)`; tcId 86 (valid) passes |
+| `wp3-early-exit-compare` | `cmp_len`: `bne exit` after the OR-accumulate, so the compare stops at the first mismatching byte. Functionally correct; +258 B pad | timing | `mlkem_decaps: constant-time in c (T1): valid c=35,103,218; c ^ bit 0 of byte 0=35,066,003; c ^ bit 7 of byte 1087=35,066,003` — the ONLY failure; both tampered inputs exit 37,215 cycles early (the first chunk's remaining 319 bytes plus the later chunks' bytes after their first difference) |
+| `wp3-swap-du-dv` | `el_u` compresses u with d=4 and `encrypt_body` compresses v with d=10 (both `jsr` + `enc_d` swapped) | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 0 (got 94 want 03)` |
+| `wp3-prf-nonce-stuck` | `prf_cbd`: `inc kp_nonce` → 3 `nop` | keygen | `mlkem_keygen [keyGen tcId 26]: ek differs at byte 0`, and `dk differs at byte 384 (got 38 want E7)` — dk_pke[0] (s_0, N=0) is still right, s_1 is the first wrong poly |
+| `wp3-g-missing-k` | `kpke_keygen`: the `jsr absorb_len` for the k byte becomes 3 `nop` — `G(d)`, not `G(d ‖ k)` | keygen | `mlkem_keygen [keyGen tcId 26]: ek differs at byte 0 (got CB want 28)` — rho changes, so everything does |
+| `wp3-h-ek-wrong-length` | `mlkem_keygen`: `ABSORB EK_BYTES` → `ABSORB EK_T_BYTES` (H over 1,152 B) | keygen | `mlkem_keygen [keyGen tcId 26]: dk differs at byte 2336 (got 8E want 81)` — ek and dk_pke exact, so the offset names the H(ek) field |
+| `wp3-ek-check-missing` | `mlkem_encaps`: `jsr check_t` → `lda #0 / nop` | ekcheck | `mlkem_encaps [encapsulationKeyCheck tcId 137 noisy linear system values too large]: accepted an ek with a coefficient >= q (t_hat[0][0] = 3330 >= q) (A=0 mlkem_status=0, want 1)`, then the E2 "must be untouched" checks |
+| `wp3-m-not-hashed` | `mlkem_encaps` hashes m with SHA3-256 into `kem_hb+32` and absorbs that into G — Kyber round 3; +258 B pad | encaps | `mlkem_encaps [encapsulation tcId 26]: K differs at byte 0 (got 3A want 79)` and `c differs at byte 0` |
+| `wp3-mask-inverted` | *extra*: `eor #$FF` after the borrow trick — valid c selects K̄, tampered c selects K'; +258 B pad | decaps | `mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte 0 (got D3 want 34)` and tcId 88 `(got AA want 2C)` — both directions wrong |
+| `wp3-mask-partial` | *extra*: `sbc #0` → `sbc #1`: mask `$FE`, bit 0 of every K byte from K̄ even when c = c' | decaps | `mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte 0 (got 35 want 34)` — one bit |
+| `wp3-key-select-short` | *extra*: the select loop starts at `ldy #30`; K[31] is never written | decaps | `mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte 31 (got EE want 3A)` — `EE` is the harness prefill |
+| `wp3-cmp-acc-reset` | *extra*: `enc_poly` zeroes `cmp_acc` before each chunk's `cmp_len`, so only the last chunk (c2) decides; +258 B pad | onebit | `mlkem_decaps [one-bit c ^ bit 0 of byte 0]: returned the VALID key K' — the re-encrypt compare missed a one-bit difference (early exit or partial compare)`; the byte-1087 flip (in c2) still rejects, as it must |
+| `wp3-z-ptr-off-by-one` | *extra*: `SRC IDX_DK, DK_Z_OFF + 1` — J over `z[1..32] ‖ dk[2400]` | decaps | `mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z\|\|c)) differs at byte 0 (got A0 want 2C)`; valid decapsulation passes, which is why the modified-ct vectors are not optional |
+| `wp3-e1-nonce-reused` | *extra*: `dec kp_nonce` after each e1_i in `el_u`: e1_0 = e1_1 = e1_2 (N=3), e2 at N=4; +258 B pad | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 322 (got CA want DA)` — u_0 (bytes 0..319) is exact, u_1 is the first poly with the reused nonce |
+| `wp3-matrix-not-transposed` | *extra*: `encrypt_body` sets `kp_t = 0` — A instead of A^T for u | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 0 (got AC want 03)` |
+| `wp3-check-t-high-byte-only` | *extra*: `check_t` drops the low-byte test for hi = 13 (4 `nop`), accepting 3328..3583 | ekcheck | `... tcId 137 ...: accepted an ek with a coefficient >= q (t_hat[0][0] = 3330 >= q)` — 3330 = `$0D02` is exactly the value only the low-byte leg rejects |
+| `wp3-v-compress-10` | *extra*: v compressed and packed with d = 10 (u correct) | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 960 (got 69 want F6)` — c1 exact, c2 is where it first differs; the C1 canary after c also trips because c2 grew to 320 B |
 
-Two of these are worth calling out. `wp3-early-exit-compare` produces the
-right K on every vector, including the one-bit cases — only the cycle count
-distinguishes it, which is why `test_mlkem.py` keeps `bench_keccak.py`'s
-calibration refusal rather than skipping the timing leg when the instrument
-is off. `wp3-ek-check-missing` is the direct consequence of WP2's raw
-`byte_decode_12` pin: an implementer who reaches for the spec's
-re-encode-and-compare shape gets a check that can never fire.
+What the run taught:
+
+- **The first `wp3-mask-inverted` was functionally equivalent and survived.**
+  `lda #0 / adc #$FF` after the `asl` gives `$FF` iff carry clear — exactly
+  what `lda #0 / sbc #0` gives. The gate reported it as a survivor, the
+  survivor was a wrong patch (not a test gap), and the inversion is now an
+  explicit `eor #$FF`. A survivor must be read before it is blamed on the
+  suite, but it must be read.
+- **GNU Make 3.81's 1-second mtime granularity reached the mutation
+  scratch too.** Verifying "every patch builds" by patch → `make` → `git
+  checkout src/kem.s` in a loop left `build/tobj/kem.o` built from the LAST
+  mutant (the checkout landed in the same second as the object), and the
+  next `make test-mlkem` on the clean tree failed with `wp3-z-ptr-off-by-one`'s
+  exact signature. `touch src/kem.s; make` fixed it. `mutate.py` is immune —
+  it copies a fresh tree per mutant — but never trust an in-tree build made
+  in the same second as a source restore.
+- **No red-phase test defect surfaced**: every mutant was killed by the
+  suite and vector designed for it, with the first differing byte naming the
+  field (2336 = H(ek), 384 = s_1, 322 = u_1, 960 = c2, 31 = the last K byte).

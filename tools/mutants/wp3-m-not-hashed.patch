@@ -1,0 +1,27 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -515,6 +515,7 @@
+         dex
+         bne loop
+         rts
++        .res 225                    ; MUTANT pad: +258 B total keeps LIB_MLKEM_RODATA on the same page offset
+ .endproc
+ 
+ ; =============================================================================
+@@ -900,9 +901,14 @@
+         ABSORB EK_BYTES
+         DSTI kem_hb
+         SQUEEZE 32                  ; hb0 = H(ek)
+-        jsr mlkem_sha3_512_init
++        jsr mlkem_sha3_256_init     ; MUTANT: Kyber r3, G(H(m) || H(ek))
+         SRC IDX_SEED, 0
+-        ABSORB 32                   ; m
++        ABSORB 32
++        DSTI kem_hb + 32
++        SQUEEZE 32                  ; hb1 = H(m)
++        jsr mlkem_sha3_512_init
++        SRCI kem_hb + 32
++        ABSORB 32                   ; H(m)
+         SRCI kem_hb
+         ABSORB 32                   ; || H(ek)
+         DST IDX_KEY, 0

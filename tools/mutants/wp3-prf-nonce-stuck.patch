@@ -1,0 +1,13 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -382,7 +382,9 @@
+         ABSORB 32
+         SRCI kp_nonce
+         ABSORB 1
+-        inc kp_nonce
++        nop                         ; MUTANT: N never incremented
++        nop
++        nop
+         DSTI kem_buf
+         SQUEEZE CBD_BYTES
+         SRCI kem_buf

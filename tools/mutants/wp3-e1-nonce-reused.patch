@@ -1,0 +1,18 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -515,6 +515,7 @@
+         dex
+         bne loop
+         rts
++        .res 255                    ; MUTANT pad: +258 B total keeps LIB_MLKEM_RODATA on the same page offset
+ .endproc
+ 
+ ; =============================================================================
+@@ -708,6 +709,7 @@
+         jsr mlkem_poly_intt
+         lda #>kem_pt
+         jsr prf_cbd                 ; e1_i, nonce 3 + i
++        dec kp_nonce                ; MUTANT: e1_0 = e1_1 = e1_2, e2 at N = 4
+         jsr pacc_add_pt
+         lda #>kem_pacc
+         jsr set_both

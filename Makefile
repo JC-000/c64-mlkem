@@ -369,8 +369,10 @@ test-sampler-full: $(PRG)
 # tools/test_mlkem.py documents the assumed ABI and parameter block at its
 # top). RED until WP3 lands. Not in `test` yet; the supervisor adds it at the
 # WP3 merge. --full runs every ACVP vector (~150 calls of 10-40M cycles).
+MLKEM_ARGS ?=
+
 test-mlkem: $(PRG)
-	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py $(MLKEM_ARGS)
 
 test-mlkem-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full

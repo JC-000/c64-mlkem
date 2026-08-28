@@ -227,53 +227,53 @@
     },
     {
       "name": "wp3-skip-rejection-compare",
-      "patch": null,
-      "test": "make test-mlkem",
-      "kill": "tools/test_mlkem.py --only decaps,onebit",
+      "patch": "wp3-skip-rejection-compare.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only decaps\"",
+      "kill": "tools/test_mlkem.py --only decaps",
       "description": "mlkem_decaps: the c == c' compare result is ignored and K' is always returned (implicit rejection never taken)",
       "expect": "mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z||c)) differs at byte 0",
       "class": "logic"
     },
     {
       "name": "wp3-early-exit-compare",
-      "patch": null,
-      "test": "make test-mlkem",
-      "kill": "tools/test_mlkem.py --only timing,onebit",
+      "patch": "wp3-early-exit-compare.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only timing\"",
+      "kill": "tools/test_mlkem.py --only timing",
       "description": "mlkem_decaps: the 1,088-byte c == c' compare returns on the FIRST mismatching byte instead of OR-accumulating over the full length (functionally correct; timing leaks where the ciphertext was tampered)",
       "expect": "mlkem_decaps: constant-time in c (T1)",
       "class": "timing"
     },
     {
       "name": "wp3-swap-du-dv",
-      "patch": null,
-      "test": "make test-mlkem",
-      "kill": "tools/test_mlkem.py --only encaps,hooks",
+      "patch": "wp3-swap-du-dv.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only encaps\"",
+      "kill": "tools/test_mlkem.py --only encaps",
       "description": "K-PKE.Encrypt: u compressed with d_v=4 / v with d_u=10 (the two compress calls, or their table rows, exchanged)",
-      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte 0",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
       "class": "order"
     },
     {
       "name": "wp3-prf-nonce-stuck",
-      "patch": null,
-      "test": "make test-mlkem",
-      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "patch": "wp3-prf-nonce-stuck.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only keygen\"",
+      "kill": "tools/test_mlkem.py --only keygen",
       "description": "K-PKE.KeyGen / Encrypt: the PRF nonce byte N is not incremented between polynomials (s[1] == s[0], e[0] == s[0] ...)",
       "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
       "class": "counter"
     },
     {
       "name": "wp3-g-missing-k",
-      "patch": null,
-      "test": "make test-mlkem",
-      "kill": "tools/test_mlkem.py --only keygen,hooks",
+      "patch": "wp3-g-missing-k.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only keygen\"",
+      "kill": "tools/test_mlkem.py --only keygen",
       "description": "K-PKE.KeyGen: (rho, sigma) = G(d) instead of G(d || k) - the 33rd byte 0x03 is not absorbed (Kyber-round-3 behaviour)",
       "expect": "mlkem_keygen [keyGen tcId 26]: ek differs at byte",
       "class": "domain-separation"
     },
     {
       "name": "wp3-h-ek-wrong-length",
-      "patch": null,
-      "test": "make test-mlkem",
+      "patch": "wp3-h-ek-wrong-length.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only keygen\"",
       "kill": "tools/test_mlkem.py --only keygen",
       "description": "ML-KEM.KeyGen: the H(ek) field of dk is SHA3-256 over 1,152 bytes of ek (t_hat only, rho omitted) instead of all 1,184",
       "expect": "mlkem_keygen [keyGen tcId 26]: dk differs at byte 2336",
@@ -281,21 +281,102 @@
     },
     {
       "name": "wp3-ek-check-missing",
-      "patch": null,
-      "test": "make test-mlkem",
+      "patch": "wp3-ek-check-missing.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only ekcheck\"",
       "kill": "tools/test_mlkem.py --only ekcheck",
       "description": "mlkem_encaps: the per-coefficient < q check on the decoded t_hat is removed (always A=0). Blind to re-encode-and-compare because byte_decode_12 is a raw pass-through - exactly why the check must be an explicit compare",
-      "expect": "accepted an ek with a coefficient >= q",
+      "expect": "accepted an ek with a coefficient >= q (t_hat[0][0] = 3330 >= q)",
       "class": "bound"
     },
     {
       "name": "wp3-m-not-hashed",
-      "patch": null,
-      "test": "make test-mlkem",
+      "patch": "wp3-m-not-hashed.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only encaps\"",
       "kill": "tools/test_mlkem.py --only encaps",
       "description": "mlkem_encaps: (K, r) = G(H(m) || H(ek)) - m is hashed before G, Kyber-round-3 behaviour; FIPS 203 Alg. 17 uses m directly",
-      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: K differs at byte 0",
       "class": "domain-separation"
+    },
+    {
+      "name": "wp3-mask-inverted",
+      "patch": "wp3-mask-inverted.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only decaps\"",
+      "kill": "tools/test_mlkem.py --only decaps",
+      "description": "EXTRA: the branch-free select mask is inverted (eor #$FF after the borrow trick): a valid c returns J(z||c) and a modified c returns K'. +258 B pad.",
+      "expect": "mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte 0",
+      "class": "logic"
+    },
+    {
+      "name": "wp3-mask-partial",
+      "patch": "wp3-mask-partial.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only decaps\"",
+      "kill": "tools/test_mlkem.py --only decaps",
+      "description": "EXTRA: the select mask is $FE instead of $FF (sbc #1): bit 0 of every K byte is taken from K_bar even when c == c'.",
+      "expect": "mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte",
+      "class": "logic"
+    },
+    {
+      "name": "wp3-key-select-short",
+      "patch": "wp3-key-select-short.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only decaps\"",
+      "kill": "tools/test_mlkem.py --only decaps",
+      "description": "EXTRA: the masked select loop starts at Y=30, so byte 31 of K is never written (partially applied select).",
+      "expect": "mlkem_decaps [decapsulation tcId 86 valid decapsulation]: K differs at byte 31",
+      "class": "off-by-one"
+    },
+    {
+      "name": "wp3-cmp-acc-reset",
+      "patch": "wp3-cmp-acc-reset.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only onebit\"",
+      "kill": "tools/test_mlkem.py --only onebit",
+      "description": "EXTRA: cmp_acc is reset before every chunk compare, so only the last chunk (c2, v) decides rejection; a c1 tamper is accepted.",
+      "expect": "mlkem_decaps [one-bit c ^ bit 0 of byte 0]: returned the VALID key K'",
+      "class": "logic"
+    },
+    {
+      "name": "wp3-z-ptr-off-by-one",
+      "patch": "wp3-z-ptr-off-by-one.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only decaps\"",
+      "kill": "tools/test_mlkem.py --only decaps",
+      "description": "EXTRA: the pointer to z inside dk is DK_Z_OFF + 1, so J is computed over z[1..32] || dk[2400]. Valid decapsulation still passes.",
+      "expect": "mlkem_decaps [decapsulation tcId 88 modified ciphertext]: K (implicit rejection J(z||c)) differs at byte 0",
+      "class": "pointer"
+    },
+    {
+      "name": "wp3-e1-nonce-reused",
+      "patch": "wp3-e1-nonce-reused.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only encaps\"",
+      "kill": "tools/test_mlkem.py --only encaps",
+      "description": "EXTRA: the PRF nonce is decremented after each e1_i, so e1_0 = e1_1 = e1_2 (N = 3) and e2 uses N = 4.",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
+      "class": "counter"
+    },
+    {
+      "name": "wp3-matrix-not-transposed",
+      "patch": "wp3-matrix-not-transposed.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only encaps\"",
+      "kill": "tools/test_mlkem.py --only encaps",
+      "description": "EXTRA: K-PKE.Encrypt uses A[i][j] instead of A^T (A[j][i]) for u \u2014 the classic Kyber transposition bug.",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte",
+      "class": "order"
+    },
+    {
+      "name": "wp3-check-t-high-byte-only",
+      "patch": "wp3-check-t-high-byte-only.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only ekcheck\"",
+      "kill": "tools/test_mlkem.py --only ekcheck",
+      "description": "EXTRA: check_t drops the low-byte test for hi = 13, so every value in [3328, 3583] passes the section 7.2 check.",
+      "expect": "accepted an ek with a coefficient >= q (t_hat[0][0] = 3330 >= q)",
+      "class": "bound"
+    },
+    {
+      "name": "wp3-v-compress-10",
+      "patch": "wp3-v-compress-10.patch",
+      "test": "make test-mlkem MLKEM_ARGS=\"--only encaps\"",
+      "kill": "tools/test_mlkem.py --only encaps",
+      "description": "EXTRA: v is compressed with d = 10 instead of d_v = 4 (u is correct, so c1 matches and c2 is where c first differs).",
+      "expect": "mlkem_encaps [encapsulation tcId 26]: c differs at byte 960",
+      "class": "order"
     }
   ]
 }

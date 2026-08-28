@@ -1,0 +1,20 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -506,6 +506,7 @@
+         eor (mlkem_zp_dst),y
+         ora cmp_acc
+         sta cmp_acc
++        bne exit                    ; MUTANT: stop at the first mismatch
+         iny
+         bne :+
+         inc mlkem_zp_src+1
+@@ -514,7 +515,8 @@
+         bne loop
+         dex
+         bne loop
+-        rts
++exit:        rts
++        .res 256                    ; MUTANT pad: +258 B total keeps LIB_MLKEM_RODATA on the same page offset
+ .endproc
+ 
+ ; =============================================================================
