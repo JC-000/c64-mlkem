@@ -161,7 +161,16 @@ def main():
 
         rc, out = run(test, wd, env={"C64_SKIP_BUILD": "1"}, log=log)
         tail = "\n".join(out.strip().splitlines()[-6:])
-        if rc != 0:
+        expect = m.get("expect", "")
+        if rc != 0 and expect and expect not in out:
+            # Red, but not for the reason the manifest names: the fault was
+            # caught only by some unrelated downstream check, so the suite
+            # does not LOCALISE it. HANDOFF-P2 treats that as a gate failure.
+            print(f"    KILLED NON-LOCALLY (test exit {rc}, expect substring absent: {expect!r})")
+            for line in tail.splitlines():
+                print(f"      | {line}")
+            results.append((name, "non-local-kill"))
+        elif rc != 0:
             print(f"    KILLED  (test exit {rc})")
             for line in tail.splitlines():
                 print(f"      | {line}")
@@ -182,8 +191,8 @@ def main():
             bad += 1
         print(f"  {mark}  {name:32} {status}")
     if bad:
-        print(f"\nFAIL: {bad} mutant(s) not killed. A surviving mutant is a test-suite "
-              f"defect and blocks the merge (HANDOFF-P2).")
+        print(f"\nFAIL: {bad} mutant(s) not killed (or killed only non-locally). A "
+              f"surviving mutant is a test-suite defect and blocks the merge (HANDOFF-P2).")
         return 1
     print("\nOK: every mutant killed")
     return 0
