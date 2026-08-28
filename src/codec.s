@@ -23,7 +23,7 @@
 ; The division by q = 3329 is done as ESTIMATE + BRANCH-FREE CORRECTIONS,
 ; with no multiply and 108 bytes of tables in total:
 ;
-;   v   = (x << d) + 1664                      (24-bit; x < q, so v < 2^22)
+;   v   = (x << d) + 1664                      (x < q, so v < 2^22)
 ;   y_e = T_hi_d[x >> 8] + T_lo[(x & 255) >> 2]
 ;         where T_hi_d[h] = floor(h * 256 * 2^d / q)  (14 entries per d)
 ;         and   T_lo[m]   = floor(m * 4 * 1024 / q)   (64 entries, d = 10 only;
@@ -37,11 +37,16 @@
 ; K = 2 for d = 4 (no T_lo: 255 * 16/q = 1.23) and d = 1 (y_e = 0, y <= 2).
 ; Verified exhaustively for every x in [0, q) and every d before this was
 ; written; the bound is tight (the third correction fires for d = 10). The
-; corrections are a fixed-count loop of 24-bit compare / carry-add, so the
-; cost is identical for every input.
+; corrections are a fixed-count loop of sign-test / carry-add, so the cost
+; is identical for every input.
 ;
-; The multiply by q inside the correction uses q = 13 * 256 + 1:
-;   q * y1 = ((13 * y1) << 8) + y1,  13 * y1 = ((3 * y1) << 2) + y1.
+; The corrections do not touch 24-bit values. The residual
+;   r = v - q * (y_e + 1)
+; lies in [-q, K*q) — y_e never exceeds the true quotient and is at most K
+; short of it — so it fits a signed 16-bit word, and everything can be done
+; mod 2^16: v is taken mod 2^16, and with q = 13 * 256 + 1 the product
+; q * y1 = y1 + (13 * y1) << 8 needs only the low byte of 13 * y1, an 8-bit
+; shift-add. Each correction is then y += (r >= 0); r -= q on 16 bits.
 ;
 ; --- Decompress_d: x = floor((q * y + 2^(d-1)) / 2^d) --------------------------
 ;
@@ -140,11 +145,12 @@ cp_mask_hi:     .res 1
 
 cp_xlo:         .res 1              ; the coefficient being processed
 cp_xhi:         .res 1
-cp_v:           .res 3              ; 24-bit numerator
+cp_v:           .res 3              ; numerator mod 2^16 (+1 dummy byte, see compress_common)
 cp_y:           .res 2              ; quotient estimate / result
-mk_in:          .res 2              ; mul13 input  (y + 1 or y)
+cp_w:           .res 3              ; y_e + 1 (16-bit) and 13 * (y_e + 1) mod 256
+cp_r:           .res 2              ; signed 16-bit residual
+mk_in:          .res 2              ; mul13 input
 mk_p:           .res 2              ; mul13 output (13 * input)
-cp_w:           .res 3              ; running q * (y_e + 1 + n)
 cd_k:           .res 1              ; encode/decode pair index
 cd_a:           .res 2              ; coefficient a (lo, hi)
 cd_b:           .res 2              ; coefficient b (lo, hi)
@@ -234,11 +240,13 @@ cd_t:           .res 1
 
         ldy #0                      ; coefficient index
 coef:
-        ; --- v = x placed per cp_pre, then << cp_shift, then + 1664 --------
+        ; --- v = ((x << d) + 1664) mod 2^16 ---------------------------------
+        ; cp_pre = 1 places lo at cp_v+1 (x << 8); hi then lands in the dummy
+        ; cp_v+2 byte, which nothing reads. Only 16 bits of v are needed: see
+        ; the residual argument in the header.
         ldx cp_pre
         lda #0
         sta cp_v+0
-        sta cp_v+2
         lda (mlkem_zp_src),y
         sta cp_xlo
         sta cp_v+0,x
@@ -248,7 +256,6 @@ coef:
         ldx cp_shift
 :       asl cp_v+0
         rol cp_v+1
-        rol cp_v+2
         dex
         bne :-
         lda cp_v+0
@@ -258,9 +265,6 @@ coef:
         lda cp_v+1
         adc #>MLKEM_Q_HALF
         sta cp_v+1
-        lda cp_v+2
-        adc #0
-        sta cp_v+2
 
         ; --- y_e = T_lo[(xlo >> 2) & lomask] + T_hi[hibase + xhi] ----------
         lda cp_xlo
@@ -282,51 +286,53 @@ coef:
         adc #0
         sta cp_y+1
 
-        ; --- w = q * (y_e + 1) = ((13 * y1) << 8) + y1 ----------------------
+        ; --- r = v - q * (y_e + 1)  (mod 2^16, signed; in [-q, 3q)) ---------
+        ; q * y1 = y1 + (13 * y1) << 8, so mod 2^16 only 13 * y1.lo matters.
         lda cp_y+0
         clc
         adc #1
-        sta mk_in+0
+        sta cp_w+0                  ; y1.lo
         lda cp_y+1
         adc #0
-        sta mk_in+1
-        jsr mul13
-        lda mk_in+0
-        sta cp_w+0
-        lda mk_in+1
+        sta cp_w+1                  ; y1.hi
+        lda cp_w+0
+        asl
         clc
-        adc mk_p+0
-        sta cp_w+1
-        lda mk_p+1
-        adc #0
+        adc cp_w+0                  ; 3 * y1.lo (mod 256)
+        asl
+        asl                         ; 12 * y1.lo
+        clc
+        adc cp_w+0                  ; 13 * y1.lo
         sta cp_w+2
-
-        ; --- K times: y += (v >= w); w += q  (branch-free) -----------------
-        ldx cp_k
-corr:
-        sec
         lda cp_v+0
+        sec
         sbc cp_w+0
+        sta cp_r+0
         lda cp_v+1
         sbc cp_w+1
-        lda cp_v+2
-        sbc cp_w+2                  ; C = (v >= w)
+        sec
+        sbc cp_w+2
+        sta cp_r+1
+
+        ; --- K times: y += (r >= 0); r -= q  (branch-free) ------------------
+        ldx cp_k
+corr:
+        lda cp_r+1
+        eor #$80
+        asl                         ; C = 1 iff r >= 0
         lda cp_y+0
         adc #0
         sta cp_y+0
         lda cp_y+1
         adc #0
         sta cp_y+1
-        lda cp_w+0
-        clc
-        adc #MLKEM_Q_LO
-        sta cp_w+0
-        lda cp_w+1
-        adc #MLKEM_Q_HI
-        sta cp_w+1
-        lda cp_w+2
-        adc #0
-        sta cp_w+2
+        lda cp_r+0
+        sec
+        sbc #MLKEM_Q_LO
+        sta cp_r+0
+        lda cp_r+1
+        sbc #MLKEM_Q_HI
+        sta cp_r+1
         dex
         bne corr
 

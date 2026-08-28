@@ -146,7 +146,7 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-sampler test-sampler-full \
-        bench tables lib lib-keccak \
+        bench bench-sampler tables lib lib-keccak \
         check-manifest check-archives check-staleness vectors help
 
 all: $(PRG)
@@ -271,6 +271,11 @@ test: test-ref test-vice test-sha3 check-archives check-staleness
 bench: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_keccak.py
 
+# WP2 samplers/codecs: cycles per routine with the same calibrated instrument,
+# plus a constant-time check (four inputs each must measure identically).
+bench-sampler: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_sampler.py
+
 # Regenerate the rho/pi/RC tables from the validated model.
 tables:
 	$(PYTHON) $(TOOLS_DIR)/gen_tables.py > $(SRC_DIR)/keccak_tables.inc
@@ -291,6 +296,7 @@ help:
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
 	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
+	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make tables       regenerate src/keccak_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"
