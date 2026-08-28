@@ -34,7 +34,7 @@
       "name": "loop-bpl-256",
       "patch": null,
       "test": "make test-ntt",
-      "description": "A 256-iteration coefficient loop (reduce, add or sub) counts down with bpl instead of bne/beq+jmp, so it exits after iteration 128 (or after one iteration when starting from 255) — P1's keccak_clear bug shape.",
+      "description": "A 256-iteration coefficient loop (reduce, add or sub) counts down with bpl instead of bne/beq+jmp, so it exits after iteration 128 (or after one iteration when starting from 255) \u2014 P1's keccak_clear bug shape.",
       "expect": "mlkem_poly_reduce[all 0xFFFF] / mlkem_poly_add[all q-1, all q-1]: first diff at coeff 128 (or 0..254)."
     },
     {
@@ -69,8 +69,80 @@
       "name": "ntt-data-dependent-branch",
       "patch": null,
       "test": "make test-ntt",
-      "description": "A conditional early-out on a zero coefficient (skip the multiply when f[j+len] == 0) — functionally correct, timing leaks.",
-      "expect": "timing section: mlkem_poly_ntt constant-time check (S5) — all-zero measures fewer cycles than random."
+      "description": "A conditional early-out on a zero coefficient (skip the multiply when f[j+len] == 0) \u2014 functionally correct, timing leaks.",
+      "expect": "timing section: mlkem_poly_ntt constant-time check (S5) \u2014 all-zero measures fewer cycles than random."
+    },
+    {
+      "name": "wp2-cbd-short",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only cbd",
+      "description": "mlkem_sample_cbd2: loop consumes 127 of the 128 PRF bytes (last two coefficients never written)",
+      "expect": "mlkem_sample_cbd2 [all-0xFF]: index 254",
+      "class": "off-by-one"
+    },
+    {
+      "name": "wp2-compress-floor",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only compress",
+      "description": "mlkem_compress_10: drop the +q/2 (round-half-up) term so compress computes floor(2^d*x/q)",
+      "expect": "mlkem_compress_10 [boundaries 0..]",
+      "class": "rounding"
+    },
+    {
+      "name": "wp2-compress-floor-4",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only compress",
+      "description": "mlkem_compress_4: same as wp2-compress-floor for d=4 (a separate routine or table row)",
+      "expect": "mlkem_compress_4 [boundaries 0..]",
+      "class": "rounding"
+    },
+    {
+      "name": "wp2-decompress-shift",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only decompress",
+      "description": "mlkem_decompress_10: rounding constant one bit short: add 2^(d-2) instead of 2^(d-1) before the >> d",
+      "expect": "mlkem_decompress_10 [exhaustive",
+      "class": "off-by-one"
+    },
+    {
+      "name": "wp2-decompress-shift-1",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only decompress",
+      "description": "mlkem_decompress_1: decompress_1 returns floor(q/2)=1664 for y=1 instead of round(q/2)=1665",
+      "expect": "mlkem_decompress_1 [exhaustive 0..]: index 1: got 1664 want 1665",
+      "class": "rounding"
+    },
+    {
+      "name": "wp2-sample-ntt-accept-q",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only sample_ntt",
+      "description": "mlkem_sample_ntt: rejection test uses d <= q instead of d < q (a candidate equal to 3329 is accepted)",
+      "expect": "stream carries a d == q",
+      "class": "bound"
+    },
+    {
+      "name": "wp2-sample-ntt-d2-after-full",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only sample_ntt",
+      "description": "mlkem_sample_ntt: drop the j < 256 guard on d2 so a valid d2 is stored after the 256th coefficient",
+      "expect": "wrote past the 512-byte output buffer",
+      "class": "bound"
+    },
+    {
+      "name": "wp2-encode-nibble-swap",
+      "patch": null,
+      "test": "make test-sampler",
+      "kill": "tools/test_sampler.py --only encode",
+      "description": "mlkem_byte_encode_12: middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4",
+      "expect": "mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1",
+      "class": "order"
     }
   ]
 }

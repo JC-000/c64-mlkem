@@ -42,6 +42,22 @@ The `bpl` mutant and the missing-final-reduce mutant are the two that a naive
 "compare modulo q at the end" suite lets through; they are why `test_ntt.py`
 compares **canonical values** and includes **all-0xFFFF / all-(q-1)** inputs.
 
+## Required WP2 mutants (samplers and codecs)
+
+Same manifest, `"test": "make test-sampler"`. `expect` is a substring the
+failure output must contain, so the kill is *localised*, not incidental.
+
+| name | fault | kill / expected failure |
+|---|---|---|
+| `wp2-cbd-short` | `mlkem_sample_cbd2`: loop consumes 127 of the 128 PRF bytes (last two coefficients never written) | `tools/test_sampler.py --only cbd` → `mlkem_sample_cbd2 [all-0xFF]: index 254` |
+| `wp2-compress-floor` | `mlkem_compress_10`: drop the +q/2 (round-half-up) term so compress computes floor(2^d*x/q) | `tools/test_sampler.py --only compress` → `mlkem_compress_10 [boundaries 0..]` |
+| `wp2-compress-floor-4` | `mlkem_compress_4`: same as wp2-compress-floor for d=4 (a separate routine or table row) | `tools/test_sampler.py --only compress` → `mlkem_compress_4 [boundaries 0..]` |
+| `wp2-decompress-shift` | `mlkem_decompress_10`: rounding constant one bit short: add 2^(d-2) instead of 2^(d-1) before the >> d | `tools/test_sampler.py --only decompress` → `mlkem_decompress_10 [exhaustive` |
+| `wp2-decompress-shift-1` | `mlkem_decompress_1`: decompress_1 returns floor(q/2)=1664 for y=1 instead of round(q/2)=1665 | `tools/test_sampler.py --only decompress` → `mlkem_decompress_1 [exhaustive 0..]: index 1: got 1664 want 1665` |
+| `wp2-sample-ntt-accept-q` | `mlkem_sample_ntt`: rejection test uses d <= q instead of d < q (a candidate equal to 3329 is accepted) | `tools/test_sampler.py --only sample_ntt` → `stream carries a d == q` |
+| `wp2-sample-ntt-d2-after-full` | `mlkem_sample_ntt`: drop the j < 256 guard on d2 so a valid d2 is stored after the 256th coefficient | `tools/test_sampler.py --only sample_ntt` → `wrote past the 512-byte output buffer` |
+| `wp2-encode-nibble-swap` | `mlkem_byte_encode_12`: middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4 | `tools/test_sampler.py --only encode` → `mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1` |
+
 ## Writing a patch
 
 From a clean green tree:

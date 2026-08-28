@@ -141,7 +141,7 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
-        test-mutants bench tables lib lib-keccak \
+        test-sampler test-sampler-full test-mutants bench tables lib lib-keccak \
         check-manifest check-archives check-staleness vectors help
 
 all: $(PRG)
@@ -264,6 +264,15 @@ test-ntt-full: $(PRG)
 # Works in build/mutants/<name>/ copies; a survivor exits nonzero.
 test-mutants:
 	@$(PYTHON) $(TOOLS_DIR)/mutate.py --manifest $(TOOLS_DIR)/mutants/manifest.json
+# WP2 samplers and codecs: SampleNTT over the live SHAKE128 stream, CBD,
+# ByteEncode/Decode12, Compress/Decompress against tools/mlkem_ref.py.
+# RED until WP2 lands. --full sweeps every compress input and every
+# encode/decode position.
+test-sampler: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py
+
+test-sampler-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py --full
 
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
@@ -297,6 +306,7 @@ help:
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
 	@echo "make test-ntt     WP1 NTT/field tests in VICE (add -full for the sweep)"
 	@echo "make test-mutants mutation gate over tools/mutants/manifest.json"
+	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"

@@ -330,13 +330,19 @@ def byte_encode(d, f):
     return bits_to_bytes(bits)
 
 
-def byte_decode(d, b):
+def byte_decode(d, b, reduce=True):
     """Alg. 6: 32*d bytes -> 256 integers, each reduced mod m (m = q for
     d = 12, 2^d otherwise). Note the reduction: an out-of-range 12-bit field
     is silently taken mod q here, exactly as the standard specifies; the ek
-    modulus check in mlkem_encaps is what rejects such inputs."""
+    modulus check in mlkem_encaps is what rejects such inputs.
+
+    reduce=False is the declared 6502 ABI (HANDOFF-P2 / test_sampler.py):
+    mlkem_byte_decode_12 is a raw unpack, a 12-bit field >= q passes through
+    unreduced (3329..4095) and the < q check is the caller's — so the Encaps
+    ek check must be an explicit per-coefficient compare, never the
+    re-encode-and-compare trick, which is blind under pass-through."""
     assert len(b) == 32 * d, (d, len(b))
-    m = Q if d == 12 else 1 << d
+    m = Q if (d == 12 and reduce) else 1 << d
     bits = bytes_to_bits(b)
     return [sum(bits[i * d + j] << j for j in range(d)) % m for i in range(N)]
 
