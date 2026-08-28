@@ -410,8 +410,19 @@ fqsb_loop:
         lda fq_e_hi
         adc fq_p1
         sta fq_e_hi
-        CSUBQ fq_e_lo, fq_e_hi, fq_e_lo, fq_e_hi, fq_px
+        ; conditional subtract of q on PUBLIC data (k * w, both public), so a
+        ; branch is fine here: the path depends on zeta only, never on a
+        ; coefficient. Do not copy this shape into anything secret.
         lda fq_e_lo
+        sec
+        sbc #<MLKEM_Q
+        tay
+        lda fq_e_hi
+        sbc #>MLKEM_Q
+        bcc :+
+        sta fq_e_hi
+        sty fq_e_lo
+:       lda fq_e_lo
         sta fq_u_lo,x
         lda fq_e_hi
         sta fq_u_hi,x

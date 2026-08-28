@@ -99,6 +99,7 @@ dc_params:
 ; T_hi_d[h] = floor(h * 256 * 2^d / q), h = 0..13 (x < q => x >> 8 <= 13).
 ; All three d share one lo-byte table and one hi-byte table, indexed by
 ; 14 * d_index + h. Computed by the assembler from the definition.
+.align 64                ; WP1 merge fix: keep the straddle assert below layout-independent (cfg align = $40)
 cp_thi_lo:
 .repeat 14, h
         .byte <((h * 256 * 2) / MLKEM_Q)
@@ -109,6 +110,7 @@ cp_thi_lo:
 .repeat 14, h
         .byte <((h * 256 * 1024) / MLKEM_Q)
 .endrepeat
+.align 64                ; WP1 merge fix: keep the straddle assert below layout-independent (cfg align = $40)
 cp_thi_hi:
 .repeat 14, h
         .byte >((h * 256 * 2) / MLKEM_Q)
@@ -121,6 +123,7 @@ cp_thi_hi:
 .endrepeat
 
 ; T_lo[m] = floor(m * 4 * 1024 / q), m = 0..63 (d = 10; max 77 fits a byte).
+.align 64                ; WP1 merge fix: keep the straddle assert below layout-independent (cfg align = $40)
 cp_tlo:
 .repeat 64, m
         .byte <((m * 4 * 1024) / MLKEM_Q)
