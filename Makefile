@@ -1,7 +1,10 @@
 # =============================================================================
 # c64-mlkem — Makefile
 #
-# Contract: c64-lib-contract SPEC v0.10.6 (../c64-lib-contract, tag v0.10.6).
+# Contract: c64-lib-contract SPEC v0.13.0 (../c64-lib-contract head; the tags
+# lag the changelog — read the SPEC version line. See
+# docs/contract-p2-alignment.md for the v0.11.0 -> v0.13.0 clause-by-clause
+# verdicts).
 #
 # §6.2 defines-forwarding. Both variables default empty and are ADDITIVE to
 # CA65FLAGS — a hard-assigned CA65FLAGS that a consumer must clobber to inject
@@ -142,7 +145,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
         test-sampler test-sampler-full test-mutants bench tables lib lib-keccak \
-        check-manifest check-archives check-staleness vectors help
+        check-manifest check-archives check-staleness check-prefix vectors help
 
 all: $(PRG)
 
@@ -166,6 +169,9 @@ $(TOBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(TOBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $<
 
 $(OBJ_DIR)/mlkem_keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
+
+# §8.4: the canonical macro source is .include'd from the manifest TU only.
+$(OBJ_DIR)/mlkem_lib_manifest.o $(TOBJ_DIR)/lib_manifest.o: $(SRC_DIR)/precalc_table.inc
 
 $(OBJ_DIR)/mlkem_%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) -o $@ $<
@@ -222,6 +228,18 @@ check-archives: lib lib-keccak
 check-staleness:
 	@$(TOOLS_DIR)/check_staleness.sh
 
+# Every exported symbol in every shipped archive is under mlkem_ / LIB_MLKEM_ /
+# keccak_ or is one of the exact §8 canonical names the contract makes
+# normative. Extracts members first — od65 cannot read archives (§8.4).
+#
+# Rebuilds the archives through a sub-make rather than listing them as
+# prerequisites: check-staleness wipes build/ mid-run, and in one invocation
+# `make check-staleness check-prefix` (the order `test` uses) would otherwise
+# find make already satisfied that the archives exist.
+check-prefix:
+	@$(MAKE) --no-print-directory lib lib-keccak >/dev/null
+	@$(TOOLS_DIR)/check_prefix.sh
+
 # Reports measured segment sizes so the §5 footprint equates can be refreshed
 # safe-direction (>= measured, rounded UP to the next 256-byte boundary).
 check-manifest: $(PRG)
@@ -276,7 +294,7 @@ test-sampler-full: $(PRG)
 
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
-test: test-ref test-vice test-sha3 check-archives check-staleness
+test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -311,5 +329,6 @@ help:
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"
+	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"

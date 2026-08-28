@@ -56,8 +56,20 @@ figure derived from the old estimate is void.
 
 ## Contract obligations that bind file layout
 
-Contract is **v0.11.0**; `git -C ../c64-lib-contract fetch --tags` before
-checking, the local tags go stale. Prefix `<X>` = `MLKEM`, shortname `mlkem`.
+Contract is **v0.13.0 at head** (tags stop at v0.11.0 — read the SPEC version
+line, not the tag; `git -C ../c64-lib-contract fetch --tags` first anyway).
+`docs/contract-p2-alignment.md` has the v0.11.0 → v0.13.0 clause-by-clause
+verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
+`MLKEM`, shortname `mlkem`.
+
+- **Every archive export is under `mlkem_` / `LIB_MLKEM_` / `keccak_`**, or is
+  one of the exact §8 canonical names (`mul_tables_init`, `ct_mul_8x8`, …).
+  `make check-prefix` (in `make test`) enforces it on the extracted archive
+  members. `poly_`, `mul_`, `ct_`, `sha_` are other libraries' prefixes.
+- `src/precalc_table.inc` is a byte-for-byte copy of the contract root file —
+  never edit it; refresh with `cp` + `cmp`. It is `.include`d from
+  `src/lib_manifest.s` and nowhere else, and that TU defines
+  `LIB_NO_BARE_EXPORTS` first so no bare `LIB_PRECALC_*` form is ever emitted.
 
 - `src/lib_version.s` exports the four §1 version equates and **nothing else** —
   ld65 links whole archive members, so anything sharing that member enters a
