@@ -1,0 +1,76 @@
+{
+  "default_test": "make test-ntt",
+  "build": "make",
+  "mutants": [
+    {
+      "name": "ntt-wrong-zeta",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "One zeta in the generated table is wrong (entry for i=77 replaced by zeta[76]).",
+      "expect": "mlkem_poly_ntt whole-transform on random/all q-1 (only pairs under zeta 77 differ); per-layer trace names L=6 for NTT and L=0 for INTT."
+    },
+    {
+      "name": "reduce-bound-off-by-one",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "Reduction compares against q+1 (or the Barrett quotient is biased by one) so an input of exactly q, or exactly k*q, is left unreduced.",
+      "expect": "mlkem_poly_reduce[k*q boundaries + extremes] and [all q] report a NON-CANONICAL coefficient (S1)."
+    },
+    {
+      "name": "ntt-missing-final-reduce",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "The final canonicalising pass at the end of mlkem_poly_ntt (or its last layer) is removed, so a coefficient in [q, 2q) is returned.",
+      "expect": "mlkem_poly_ntt[all q-1] / random: first diff flagged NON-CANONICAL; intt(ntt(f)) may still pass, which is precisely why S1 compares canonical values."
+    },
+    {
+      "name": "butterfly-swapped-operand",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "In the CT butterfly, f[j] and f[j+len] are exchanged on the subtract side (f[j+len] = t - f[j] instead of f[j] - t).",
+      "expect": "mlkem_ntt_layer L=0 on impulse[255]=q-1 and all q-1; whole NTT on every non-zero case."
+    },
+    {
+      "name": "loop-bpl-256",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "A 256-iteration coefficient loop (reduce, add or sub) counts down with bpl instead of bne/beq+jmp, so it exits after iteration 128 (or after one iteration when starting from 255) — P1's keccak_clear bug shape.",
+      "expect": "mlkem_poly_reduce[all 0xFFFF] / mlkem_poly_add[all q-1, all q-1]: first diff at coeff 128 (or 0..254)."
+    },
+    {
+      "name": "basemul-accumulator-24bit",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "basemul accumulates a0*b0 + zeta*(a1*b1) without reducing a1*b1 first, in a 24-bit accumulator (carry into byte 3 dropped).",
+      "expect": "mlkem_poly_basemul[all q-1 x all q-1 (S4 accumulator width)]."
+    },
+    {
+      "name": "basemul-zeta-sign",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "The sign alternation of gamma between the two halves of each pair (zeta^{2*BitRev7(i)+1} vs its negative) is dropped.",
+      "expect": "mlkem_poly_basemul[impulse[3]=q-1 x impulse[3]=q-1] and [impulse[255] x impulse[255]] (odd pairs), whole random cases."
+    },
+    {
+      "name": "sub-no-wrap",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "mlkem_poly_sub omits the +q correction when the difference is negative.",
+      "expect": "mlkem_poly_sub[zero, all q-1 (S3 wrap)]: NON-CANONICAL 0xF2FF-style result."
+    },
+    {
+      "name": "intt-scale-wrong",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "The final 128^-1 = 3303 multiply uses 3302 (or is skipped).",
+      "expect": "mlkem_poly_intt whole transform and intt(ntt(f)) == f; per-layer trace passes through L=5 and names L=6 or the full function."
+    },
+    {
+      "name": "ntt-data-dependent-branch",
+      "patch": null,
+      "test": "make test-ntt",
+      "description": "A conditional early-out on a zero coefficient (skip the multiply when f[j+len] == 0) — functionally correct, timing leaks.",
+      "expect": "timing section: mlkem_poly_ntt constant-time check (S5) — all-zero measures fewer cycles than random."
+    }
+  ]
+}
