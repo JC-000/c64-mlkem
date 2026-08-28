@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -872,7 +872,7 @@
+         jsr copy32                  ;               ... then rho)
+         jsr mlkem_sha3_256_init
+         SRC IDX_EK, 0
+-        ABSORB EK_BYTES
++        ABSORB EK_T_BYTES           ; MUTANT: H over 1152 B, rho omitted
+         DST IDX_DK, DK_H_OFF
+         SQUEEZE 32                  ; H(ek)
+         SRC IDX_Z, 0

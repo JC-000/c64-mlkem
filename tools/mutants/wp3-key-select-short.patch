@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -966,7 +966,7 @@
+         sbc #0
+         sta c_hi                    ; mask
+         DST IDX_KEY, 0
+-        ldy #31
++        ldy #30                     ; MUTANT: byte 31 of K never written
+ :       lda kem_hb + 64,y           ; K'
+         eor kem_hb + 96,y           ; ^ K_bar
+         and c_hi

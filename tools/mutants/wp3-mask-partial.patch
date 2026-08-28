@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -963,7 +963,7 @@
+         ora c_lo
+         asl
+         lda #0
+-        sbc #0
++        sbc #1                      ; MUTANT: mask $FE, bit 0 of every K byte comes from K_bar
+         sta c_hi                    ; mask
+         DST IDX_KEY, 0
+         ldy #31

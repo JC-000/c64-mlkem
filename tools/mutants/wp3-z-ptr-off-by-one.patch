@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -937,7 +937,7 @@
+         DSTI kem_hb + 32
+         SQUEEZE 32                  ; hb1 = r'
+         jsr mlkem_shake256_init
+-        SRC IDX_DK, DK_Z_OFF
++        SRC IDX_DK, DK_Z_OFF + 1    ; MUTANT: z read one byte late
+         ABSORB 32                   ; z
+         SRC IDX_CT, 0
+         ABSORB CT_BYTES             ; || c

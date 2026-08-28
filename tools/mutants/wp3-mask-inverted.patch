@@ -1,0 +1,18 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -515,6 +515,7 @@
+         dex
+         bne loop
+         rts
++        .res 256                    ; MUTANT pad: +258 B total keeps LIB_MLKEM_RODATA on the same page offset
+ .endproc
+ 
+ ; =============================================================================
+@@ -964,6 +965,7 @@
+         asl
+         lda #0
+         sbc #0
++        eor #$FF                    ; MUTANT: mask = $FF iff c != c' (selection inverted)
+         sta c_hi                    ; mask
+         DST IDX_KEY, 0
+         ldy #31

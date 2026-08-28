@@ -1,0 +1,19 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -515,6 +515,7 @@
+         dex
+         bne loop
+         rts
++        .res 253                    ; MUTANT pad: +258 B total keeps LIB_MLKEM_RODATA on the same page offset
+ .endproc
+ 
+ ; =============================================================================
+@@ -578,6 +579,8 @@
+         lda kp_cmp
+         beq done
+         SRCI kem_buf
++        lda #0                      ; MUTANT: OR-accumulator reset per chunk, only c2 is compared
++        sta cmp_acc
+         jsr cmp_len
+ done:   rts
+ .endproc

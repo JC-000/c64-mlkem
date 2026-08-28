@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -764,7 +764,7 @@
+         sta kp_nonce
+         VEC >kem_pva, el_sample     ; y_hat, N = 0..2
+         PTRSET IDX_RUN, IDX_OUT, 0
+-        lda #1
++        lda #0                      ; MUTANT: A instead of A^T in Encrypt
+         sta kp_t                    ; A^T
+         VEC 0, el_u                 ; c1: u_0, u_1, u_2 (e1 N = 3..5)
+         jsr dot_ab                  ; pacc = INTT(t_hat . y_hat), pva consumed

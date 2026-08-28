@@ -1,0 +1,15 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -842,8 +842,10 @@
+         cmp #MLKEM_Q_HI
+         bcc next
+         bne bad
+-        lda (mlkem_zp_src),y        ; hi = 13: only 3328 = $0D00 is < q
+-        bne bad
++        nop                         ; MUTANT: low byte ignored, any $0Dxx accepted
++        nop
++        nop
++        nop
+ next:   iny
+         bne coef
+         inc mlkem_zp_src+1
