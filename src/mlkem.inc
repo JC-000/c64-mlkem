@@ -158,4 +158,37 @@ MLKEM_INC_INCLUDED = 1
 .import mlkem_compress_1, mlkem_compress_4, mlkem_compress_10
 .import mlkem_decompress_1, mlkem_decompress_4, mlkem_decompress_10
 
+; --- P2 / WP3: K-PKE and ML-KEM-768 (src/kem.s, FIPS 203 Alg. 13-18) --------
+;
+; Wire formats, verbatim, at caller-supplied addresses with NO alignment
+; requirement: ek 1,184 B, dk 2,400 B, c 1,088 B, K / d / z / m 32 B.
+;
+; PARAMETER BLOCK: six little-endian 16-bit pointers, contiguous in
+; LIB_MLKEM_BSS (a 12-byte struct at mlkem_arg_ek). Set once; no call
+; modifies it.
+;     mlkem_arg_ek    +0    mlkem_arg_dk    +2    mlkem_arg_ct   +4
+;     mlkem_arg_key   +6    mlkem_arg_seed  +8    mlkem_arg_z   +10
+;
+;   mlkem_keygen   seed = d, z          -> ek, dk            A = 0
+;   mlkem_encaps   ek, seed = m         -> key = K, ct = c   A = status
+;   mlkem_decaps   dk, ct               -> key = K           A = 0
+;
+; mlkem_encaps status (A, and latched in mlkem_status): 0 = ok; 1 = ek failed
+; the FIPS 203 §7.2 modulus check (a 12-bit field of t_hat >= q) — nothing
+; has been written. Length checks are the caller's (pointers, not lengths).
+; mlkem_decaps never fails: a ciphertext that does not re-encrypt yields
+; K = J(z || c) silently, in constant time (full-length compare, masked
+; select). The §7.3 H(ek) check on dk is the caller's per FIPS 203; this
+; library does not perform it. mlkem_keygen / mlkem_decaps also clear
+; mlkem_status.
+;
+; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
+; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
+; BSS: 4,632 B in this TU (eight page-aligned polynomials, 320 B chunk
+; buffer, 128 B hash scratch, the block). The matrix A is never stored.
+.import mlkem_keygen, mlkem_encaps, mlkem_decaps
+.import mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
+.import mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
+.import mlkem_status
+
 .endif
