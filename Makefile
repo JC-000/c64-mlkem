@@ -144,7 +144,8 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
-        test-sampler test-sampler-full test-mutants bench tables lib lib-keccak \
+        test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
+        bench tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix vectors help
 
 all: $(PRG)
@@ -292,6 +293,17 @@ test-sampler: $(PRG)
 test-sampler-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py --full
 
+# WP3 K-PKE + ML-KEM-768 KeyGen/Encaps/Decaps against ACVP, hazmat and
+# tools/mlkem_ref.py, plus the constant-time decaps check (red-first:
+# tools/test_mlkem.py documents the assumed ABI and parameter block at its
+# top). RED until WP3 lands. Not in `test` yet; the supervisor adds it at the
+# WP3 merge. --full runs every ACVP vector (~150 calls of 10-40M cycles).
+test-mlkem: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py
+
+test-mlkem-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full
+
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
 test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
@@ -325,6 +337,7 @@ help:
 	@echo "make test-ntt     WP1 NTT/field tests in VICE (add -full for the sweep)"
 	@echo "make test-mutants mutation gate over tools/mutants/manifest.json"
 	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
+	@echo "make test-mlkem   WP3 K-PKE/ML-KEM KATs + hazmat + CT decaps in VICE (add -full)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
