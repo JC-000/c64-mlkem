@@ -43,7 +43,7 @@ PRG_PATH = os.path.join(PROJECT_ROOT, "build", "mlkem.prg")
 LABELS_PATH = os.path.join(PROJECT_ROOT, "build", "labels.txt")
 
 Q, N = 3329, 256
-IN_BUF, POLY_A, POLY_B = 0x8000, 0x9000, 0x9400
+IN_BUF, POLY_A, POLY_B = 0x8000, 0x8400, 0x8800   # clear of sqtab at $9000-$93FF
 
 
 def rho(n):
