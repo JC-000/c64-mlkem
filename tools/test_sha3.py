@@ -40,8 +40,12 @@ PRG_PATH = os.path.join(PROJECT_ROOT, "build", "mlkem.prg")
 LABELS_PATH = os.path.join(PROJECT_ROOT, "build", "labels.txt")
 VEC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vectors")
 
-MSG_BUF = 0x2000        # free RAM well above the PRG image (~$0E47)
-OUT_BUF = 0x4000
+# Scratch RAM above the linked image. The image end is read from the labels
+# file (__MAIN_LAST__) and checked in main(): P2 grew the image to ~$3E00
+# (P1: ~$0E47), and a buffer inside LIB_MLKEM_RODATA silently overwrites the
+# Keccak round constants with the message under test.
+MSG_BUF = 0x5000
+OUT_BUF = 0x7000
 
 FUNCS = {
     "sha3_256":  ("mlkem_sha3_256_init", 136, 32,  lambda m, n: hashlib.sha3_256(m).digest()),
@@ -250,6 +254,10 @@ def main():
             return 1
 
     labels = Labels.from_file(LABELS_PATH)
+    image_end = labels.address("__MAIN_LAST__")
+    if image_end is not None and image_end > MSG_BUF:
+        print(f"FATAL: image ends at ${image_end:04X}, past the test scratch at ${MSG_BUF:04X}")
+        return 1
     config = ViceConfig(prg_path=PRG_PATH, warp=True, ntsc=True, sound=False,
                         extra_args=["+reu"])
 
