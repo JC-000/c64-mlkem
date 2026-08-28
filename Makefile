@@ -228,10 +228,14 @@ check-manifest: $(PRG)
 
 # --- tests ------------------------------------------------------------------
 
-# Oracle self-test: validates tools/keccak_ref.py against the XKCP published
-# intermediate values and the NIST CAVP vectors. Pure Python, no VICE.
+# Oracle self-tests, pure Python, no VICE: tools/keccak_ref.py against the
+# XKCP published intermediate values and the NIST CAVP vectors, then
+# tools/mlkem_ref.py against the NIST ACVP ML-KEM-768 vectors and
+# cryptography.hazmat. Both must be green before any 6502 comparison means
+# anything.
 test-ref: vectors
 	@$(PYTHON) $(TOOLS_DIR)/test_keccak_ref.py
+	@$(PYTHON) $(TOOLS_DIR)/test_mlkem_ref.py
 
 # Differential test of the 6502 permutation against the validated model,
 # single-stepping every round. Needs VICE + c64-test-harness.
@@ -256,9 +260,11 @@ test: test-ref test-vice test-sha3 check-archives check-staleness
 bench: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_keccak.py
 
-# Regenerate the rho/pi/RC tables from the validated model.
+# Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
+# constants from the validated models.
 tables:
 	$(PYTHON) $(TOOLS_DIR)/gen_tables.py > $(SRC_DIR)/keccak_tables.inc
+	$(PYTHON) $(TOOLS_DIR)/gen_tables.py --mlkem > $(SRC_DIR)/mlkem_tables.inc
 
 vectors:
 	@$(TOOLS_DIR)/fetch_vectors.sh
@@ -271,12 +277,12 @@ help:
 	@echo "make lib          $(ARCHIVE)"
 	@echo "make lib-keccak   $(ARCHIVE_KECCAK)"
 	@echo "make test         full suite (test-ref + contract checks)"
-	@echo "make test-ref     oracle self-test (Python only, no VICE)"
+	@echo "make test-ref     oracle self-tests, Keccak + ML-KEM (Python only, no VICE)"
 	@echo "make test-vice    per-step differential trace under VICE"
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
-	@echo "make tables       regenerate src/keccak_tables.inc"
+	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"
-	@echo "make vectors      fetch NIST CAVP LongMsg vectors"
+	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"
