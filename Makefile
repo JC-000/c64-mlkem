@@ -140,7 +140,8 @@ LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS))
 ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
-.PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full bench tables lib lib-keccak \
+.PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
+        test-mutants bench tables lib lib-keccak \
         check-manifest check-archives check-staleness vectors help
 
 all: $(PRG)
@@ -246,6 +247,20 @@ test-sha3: $(PRG)
 test-sha3-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sha3.py --full
 
+# P2 / WP1: mod-3329 arithmetic and NTT against tools/mlkem_ref.py, per layer
+# (red-first: tools/test_ntt.py documents the assumed ABI at its top). Not yet
+# part of `test`; the supervisor adds it at the WP1 merge.
+test-ntt: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_ntt.py
+
+test-ntt-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_ntt.py --full
+
+# Mutation gate: every tools/mutants/*.patch must turn its named test red.
+# Works in build/mutants/<name>/ copies; a survivor exits nonzero.
+test-mutants:
+	@$(PYTHON) $(TOOLS_DIR)/mutate.py --manifest $(TOOLS_DIR)/mutants/manifest.json
+
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
 test: test-ref test-vice test-sha3 check-archives check-staleness
@@ -274,6 +289,8 @@ help:
 	@echo "make test-ref     oracle self-test (Python only, no VICE)"
 	@echo "make test-vice    per-step differential trace under VICE"
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
+	@echo "make test-ntt     WP1 NTT/field tests in VICE (add -full for the sweep)"
+	@echo "make test-mutants mutation gate over tools/mutants/manifest.json"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make tables       regenerate src/keccak_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
