@@ -1,0 +1,22 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -891,7 +891,7 @@
+ mlkem_poly_add:
+         jsr nt_patch_dst
+         jsr nt_patch_src
+-        ldx #0
++        ldx #255
+ pa_loop:
+ ad_s01: lda $FF00,x
+         clc
+@@ -905,8 +905,8 @@
+ ad_s05: sta $FF00,x
+         lda fq_p1
+ ad_s06: sta $FF00,x
+-        inx
+-        bne pa_loop
++        dex
++        bpl pa_loop
+         rts
+ 
+ ; =============================================================================

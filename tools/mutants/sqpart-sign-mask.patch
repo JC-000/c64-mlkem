@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -220,7 +220,7 @@
+         sta ohi
+         eor olo
+         sec
+-        sbc ohi                 ; |d| = (d ^ m) - m
++        sbc #0                  ; MUTANT: |d| = d ^ m (off by one when x < y)
+         tay
+ lsite:  lda sqtab_lo,x
+         sec

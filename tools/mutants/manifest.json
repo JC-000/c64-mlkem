@@ -4,73 +4,108 @@
   "mutants": [
     {
       "name": "ntt-wrong-zeta",
-      "patch": null,
+      "patch": "ntt-wrong-zeta.patch",
       "test": "make test-ntt",
-      "description": "One zeta in the generated table is wrong (entry for i=77 replaced by zeta[76]).",
-      "expect": "mlkem_poly_ntt whole-transform on random/all q-1 (only pairs under zeta 77 differ); per-layer trace names L=6 for NTT and L=0 for INTT."
+      "description": "src/mlkem_tables.inc: zetas[77] := zetas[76] (both planes). One entry, block 13 of the last NTT layer.",
+      "expect": "mlkem_ntt_layer L=6 (len=2)"
     },
     {
       "name": "reduce-bound-off-by-one",
-      "patch": null,
+      "patch": "reduce-bound-off-by-one.patch",
       "test": "make test-ntt",
-      "description": "Reduction compares against q+1 (or the Barrett quotient is biased by one) so an input of exactly q, or exactly k*q, is left unreduced.",
-      "expect": "mlkem_poly_reduce[k*q boundaries + extremes] and [all q] report a NON-CANONICAL coefficient (S1)."
+      "description": "mlkem_poly_reduce gets a private conditional subtract whose threshold is q instead of q-1, so v == k*q comes back as q. (The shared CSUBQ also feeds arith_init/add/basemul, so the fault is scoped to reduce; +258 B pad keeps RODATA's page offset.)",
+      "expect": "mlkem_poly_reduce[k*q boundaries + extremes]"
     },
     {
       "name": "ntt-missing-final-reduce",
-      "patch": null,
+      "patch": "ntt-missing-final-reduce.patch",
       "test": "make test-ntt",
-      "description": "The final canonicalising pass at the end of mlkem_poly_ntt (or its last layer) is removed, so a coefficient in [q, 2q) is returned.",
-      "expect": "mlkem_poly_ntt[all q-1] / random: first diff flagged NON-CANONICAL; intt(ntt(f)) may still pass, which is precisely why S1 compares canonical values."
+      "description": "REPLACED: this implementation canonicalises inside every butterfly and has no final pass. Nearest fault of the class: the high-byte half of the masked subtract on f[X]+t is dropped (`sbc fq_e_lo` -> `sbc #0`), so sums >= q leave the layer non-canonical.",
+      "expect": "mlkem_ntt_layer L=0 (len=128) [all q-1]"
     },
     {
       "name": "butterfly-swapped-operand",
-      "patch": null,
+      "patch": "butterfly-swapped-operand.patch",
       "test": "make test-ntt",
-      "description": "In the CT butterfly, f[j] and f[j+len] are exchanged on the subtract side (f[j+len] = t - f[j] instead of f[j] - t).",
-      "expect": "mlkem_ntt_layer L=0 on impulse[255]=q-1 and all q-1; whole NTT on every non-zero case."
+      "description": "NTT butterfly computes f[Y] = t - f[X] instead of f[X] - t (operands of the subtract exchanged; same size).",
+      "expect": "mlkem_ntt_layer L=0 (len=128) [all q-1]"
     },
     {
       "name": "loop-bpl-256",
-      "patch": null,
+      "patch": "loop-bpl-256.patch",
       "test": "make test-ntt",
-      "description": "A 256-iteration coefficient loop (reduce, add or sub) counts down with bpl instead of bne/beq+jmp, so it exits after iteration 128 (or after one iteration when starting from 255) \u2014 P1's keccak_clear bug shape.",
-      "expect": "mlkem_poly_reduce[all 0xFFFF] / mlkem_poly_add[all q-1, all q-1]: first diff at coeff 128 (or 0..254)."
+      "description": "mlkem_poly_add counts X down from 255 with dex/bpl: bit 7 of 254 is set, so the loop runs exactly once (P1's keccak_clear shape).",
+      "expect": "mlkem_poly_add[all q-1, all q-1]: first diff at coeff 0"
     },
     {
       "name": "basemul-accumulator-24bit",
-      "patch": null,
+      "patch": "basemul-accumulator-24bit.patch",
       "test": "make test-ntt",
-      "description": "basemul accumulates a0*b0 + zeta*(a1*b1) without reducing a1*b1 first, in a 24-bit accumulator (carry into byte 3 dropped).",
-      "expect": "mlkem_poly_basemul[all q-1 x all q-1 (S4 accumulator width)]."
+      "description": "REPLACED: every product is reduced before it is combined, so no 24-bit accumulator exists. Nearest fault of the class 'operand exceeds the multiply's width assumption': the (x0+x1) sum feeding the Karatsuba middle product is not reduced (jsr fq_csubq_p -> 3 nops), so a1 reaches 26 and the 14x14 |d| table is over-run.",
+      "expect": "mlkem_poly_basemul[all q-1 x all q-1  (S4 accumulator width)]"
     },
     {
       "name": "basemul-zeta-sign",
-      "patch": null,
+      "patch": "basemul-zeta-sign.patch",
       "test": "make test-ntt",
-      "description": "The sign alternation of gamma between the two halves of each pair (zeta^{2*BitRev7(i)+1} vs its negative) is dropped.",
-      "expect": "mlkem_poly_basemul[impulse[3]=q-1 x impulse[3]=q-1] and [impulse[255] x impulse[255]] (odd pairs), whole random cases."
+      "description": "The parity test `and #2` becomes `and #0`: every pair takes the even (+gamma) path; the odd pairs no longer subtract.",
+      "expect": "mlkem_poly_basemul[impulse[3]=q-1 x impulse[3]=q-1]"
     },
     {
       "name": "sub-no-wrap",
-      "patch": null,
+      "patch": "sub-no-wrap.patch",
       "test": "make test-ntt",
-      "description": "mlkem_poly_sub omits the +q correction when the difference is negative.",
-      "expect": "mlkem_poly_sub[zero, all q-1 (S3 wrap)]: NON-CANONICAL 0xF2FF-style result."
+      "description": "mlkem_poly_sub: the +q high-byte correction on borrow is masked out (`and #MLKEM_Q_HI` -> `and #0`).",
+      "expect": "mlkem_poly_sub[zero, all q-1  (S3 wrap)]"
     },
     {
       "name": "intt-scale-wrong",
-      "patch": null,
+      "patch": "intt-scale-wrong.patch",
       "test": "make test-ntt",
-      "description": "The final 128^-1 = 3303 multiply uses 3302 (or is skipped).",
-      "expect": "mlkem_poly_intt whole transform and intt(ntt(f)) == f; per-layer trace passes through L=5 and names L=6 or the full function."
+      "description": "The 128^-1 block constant is 3302 instead of 3303 (low byte only).",
+      "expect": "mlkem_poly_intt[all q-1]"
     },
     {
       "name": "ntt-data-dependent-branch",
-      "patch": null,
+      "patch": "ntt-data-dependent-branch.patch",
       "test": "make test-ntt",
-      "description": "A conditional early-out on a zero coefficient (skip the multiply when f[j+len] == 0) \u2014 functionally correct, timing leaks.",
-      "expect": "timing section: mlkem_poly_ntt constant-time check (S5) \u2014 all-zero measures fewer cycles than random."
+      "description": "The masked conditional subtract on f[X]+t in the NTT butterfly becomes a `bcc`-guarded store: functionally identical, one cycle per butterfly depends on the coefficient. Same size (29 B + nop).",
+      "expect": "mlkem_poly_ntt: constant-time in its input (S5)"
+    },
+    {
+      "name": "ntt-a1-range-12",
+      "patch": "ntt-a1-range-12.patch",
+      "test": "make test-ntt",
+      "description": "EXTRA: the block table U[k] stops at k = 12 (`cpx #14` -> `cpx #13`), restoring the a1 <= 12 assumption; a = q-1 = $0D00 is the only coefficient that reaches U[13].",
+      "expect": "mlkem_poly_ntt[all q-1]"
+    },
+    {
+      "name": "sqpart-sign-mask",
+      "patch": "sqpart-sign-mask.patch",
+      "test": "make test-ntt",
+      "description": "EXTRA: SQPART's |x-y| = (d ^ m) - m loses the `- m` (`sbc ohi` -> `sbc #0`): off by one whenever x < y in an 8x8 partial.",
+      "expect": "mlkem_poly_ntt[all-zero]"
+    },
+    {
+      "name": "rtable-one-entry",
+      "patch": "rtable-one-entry.patch",
+      "test": "make test-ntt",
+      "description": "EXTRA: mlkem_arith_init leaves one wrong entry in the BSS reduction table: R1[13] = 3327 instead of 3328 (+258 B pad keeps RODATA's page offset).",
+      "expect": "mlkem_poly_reduce[k*q boundaries + extremes]"
+    },
+    {
+      "name": "smc-site-missing",
+      "patch": "smc-site-missing.patch",
+      "test": "make test-ntt",
+      "description": "EXTRA: one SMC site dropped from nt_dst_lo_sites (ad_s05, add's low-plane store, listed as ad_s01 twice), so add stores its low bytes to $FF00,x instead of the destination.",
+      "expect": "mlkem_poly_add[all q-1, all q-1]"
+    },
+    {
+      "name": "basemul-karatsuba",
+      "patch": "basemul-karatsuba.patch",
+      "test": "make test-ntt",
+      "description": "EXTRA: Karatsuba recombination c1 = m - r00 - r00 instead of m - r00 - r11.",
+      "expect": "mlkem_poly_basemul[impulse[0]=q-1 x impulse[0]=q-1]"
     },
     {
       "name": "wp2-cbd-short",

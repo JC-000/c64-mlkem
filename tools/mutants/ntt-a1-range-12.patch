@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -436,7 +436,7 @@
+         lda fq_e_hi
+         sta fq_u_hi,x
+         inx
+-        cpx #14
++        cpx #13
+         bne fqsb_loop
+         rts
+ 

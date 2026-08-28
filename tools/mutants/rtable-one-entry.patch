@@ -1,0 +1,18 @@
+--- a/src/ntt.s	2026-08-28 18:18:12
++++ b/src/ntt.s	2026-08-28 18:18:12
+@@ -1006,6 +1006,7 @@
+         jsr fq_csubq_p
+         inx
+         bne @r2
++        dec mlkem_r1_lo + 13            ; MUTANT: R1[13] = 3327, not 3328
+         ; the |d| table into its page-aligned home
+         ldx #26
+ @sqd:
+@@ -1014,6 +1015,7 @@
+         dex
+         bpl @sqd                        ; 27 entries: bit 7 of 26 is clear
+         rts
++        .res 255                        ; keep LIB_MLKEM_RODATA on the same page offset
+ 
+ ; =============================================================================
+ ; Test hooks: one layer at a time, for the differential harness.

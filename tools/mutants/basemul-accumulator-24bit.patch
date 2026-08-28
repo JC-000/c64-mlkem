@@ -1,0 +1,13 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -808,7 +808,9 @@
+ bm_s11: lda $FF00,x
+ bm_s12: adc $FF01,x
+         sta fq_p1
+-        jsr fq_csubq_p
++        nop
++        nop
++        nop
+         lda fq_p0
+         sta fq_a_lo
+         lda fq_p1

@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -930,7 +930,7 @@
+         lda #0
+         sbc #0
+         eor #$FF
+-        and #MLKEM_Q_HI
++        and #0
+         sta fq_px
+         lda fq_p0
+         adc #0

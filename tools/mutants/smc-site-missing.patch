@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -131,7 +131,7 @@
+         .addr nt_s01, nt_s03, nt_s05, nt_s07, nt_s09
+         .addr it_s01, it_s02, it_s05, it_s06, it_s09, it_s11
+         .addr sc_s01, sc_s03
+-        .addr ad_s01, ad_s05
++        .addr ad_s01, ad_s01
+         .addr sb_s02, sb_s05
+         .addr rd_s02, rd_s03
+         .addr bm_s01, bm_s05, bm_s09, bm_s10, bm_s17, bm_s19

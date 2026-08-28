@@ -1,0 +1,20 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -544,13 +544,13 @@
+         ldx nt_savex
+         ldy nt_savey
+         ; d = f[X] - t (mod q) -> fq_px:fq_p2, via ~(t - f[X] - 1); C = f[X] < t
+-        lda fq_r_lo
++nt_s03: lda $FF00,x
+         clc
+-nt_s03: sbc $FF00,x
++        sbc fq_r_lo
+         eor #$FF
+         sta fq_px
+-        lda fq_r_hi
+-nt_s04: sbc $FF00,x
++nt_s04: lda $FF00,x
++        sbc fq_r_hi
+         eor #$FF
+         sta fq_p2
+         lda #0
