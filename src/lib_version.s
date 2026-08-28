@@ -42,10 +42,17 @@
 ;              export is exactly what this counter is for, so it moves for the
 ;              first time. Free in practice — the library had no consumers to
 ;              break, which is the whole argument for doing it now.
+;   2  v0.5.0  ADDITIVE only — P2: mlkem_poly_* / mlkem_sample_* / codecs /
+;              mlkem_keygen/encaps/decaps, mul_tables_init (owner builds),
+;              mlkem_arith_init, the §8.0 masks moving 0/0 -> 1/1 and three
+;              §8.4 LIB_MLKEM_PRECALC_* triples joined the surface; the P1
+;              surface is byte-identical (od65 on both archives against the
+;              v0.4.0 header). Nothing removed or renamed, no calling
+;              convention touched: the counter does not move.
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
-LIB_MLKEM_VERSION_MINOR = 4
+LIB_MLKEM_VERSION_MINOR = 5
 LIB_MLKEM_VERSION_PATCH = 0
 LIB_MLKEM_ABI_VERSION   = 2
 

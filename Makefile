@@ -62,13 +62,23 @@ CONTRACT_ZP_DEFINES ?=
 CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
 CONFIG_STAMP = build/.config-sig
 
+# §6.3 REJECTION branch. MLKEM_KECCAK_ONLY is not a consumer knob: it names the
+# member set of mlkem-keccak.a and is set by the lib-keccak target itself, on
+# its own manifest object (build/kobj). Reaching every archive member through
+# CONTRACT_DEFINES is something no target here can honor — the full archive's
+# manifest would then describe a member set it does not ship (§6.4) — so it
+# is refused at parse time rather than silently producing a lying mlkem.a.
+ifneq (,$(findstring MLKEM_KECCAK_ONLY,$(CONTRACT_DEFINES) $(CA65FLAGS)))
+$(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.3/§6.4))
+endif
+
 # Run at PARSE time, deliberately — not from a recipe. By the time a recipe
 # runs, make has already stat'd its targets and decided what is up to date;
 # deleting the PRG from a recipe then leaves make convinced it still exists and
 # the link is skipped, producing no output file at all (measured).
 _ := $(shell \
   if [ -f build/.config-sig ] && [ "$$(cat build/.config-sig)" != '$(CONFIG_SIG)' ]; then \
-    rm -rf build/obj build/tobj build/mlkem.prg build/labels.txt build/mlkem.map; \
+    rm -rf build/obj build/tobj build/kobj build/lib build/mlkem.prg build/labels.txt build/mlkem.map build/mlkem-lib.prg build/mlkem-lib.map; \
   fi; \
   mkdir -p build 2>/dev/null; printf '%s' '$(CONFIG_SIG)' > build/.config-sig)
 
@@ -107,8 +117,13 @@ PYTHON ?= $(shell [ -x $(FLEET_VENV) ] && echo $(FLEET_VENV) || command -v pytho
 #  from it breaks in a way the error message does not point at.)
 # OBJ_DIR  = archive configuration
 # TOBJ_DIR = standalone/test configuration
+# KOBJ_DIR = the mlkem-keccak.a MANIFEST only (-D MLKEM_KECCAK_ONLY=1): §6.4
+#            wants one manifest per member set, and a separate object path is
+#            what keeps `make lib` and `make lib-keccak` from overwriting each
+#            other's manifest on a warm tree (check-staleness pins that).
 OBJ_DIR = $(BUILD_DIR)/obj
 TOBJ_DIR = $(BUILD_DIR)/tobj
+KOBJ_DIR = $(BUILD_DIR)/kobj
 
 TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 
@@ -131,11 +146,12 @@ WP2_SRCS = sample codec
 WP3_SRCS = kem
 
 # The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge)
-# only. Diverged from LIB_SRCS at P2 WP1. NOTE (WP4): mlkem_lib_manifest.o now
-# carries the §8.0 sqtab masks, which this member set does not consume; §6.4
-# wants a manifest configuration per member set — see
-# docs/contract-p2-alignment.md §2.5.
-KECCAK_SRCS = lib_version lib_manifest state keccak sponge
+# only. Diverged from LIB_SRCS at P2 WP1. Its manifest is a SEPARATE object
+# (KOBJ_DIR, -D MLKEM_KECCAK_ONLY=1) so it carries neither the §8.0 sqtab
+# masks nor the §8.4 rows — that member set never reads the table
+# (docs/contract-p2-alignment.md §2.5; §6.4 forbids one manifest describing
+# two member sets).
+KECCAK_SRCS = lib_version state keccak sponge
 
 # Driver-side sources: standalone PRG only.
 DRIVER_SRCS = main bench zp_config
@@ -147,7 +163,17 @@ DRIVER_SRCS = main bench zp_config
 # off the flat-namespace pile-up the clause is worried about: `lib_version.o`
 # and `lib_manifest.o` still have four claimants, not five.
 LIB_OBJS    = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(LIB_SRCS)))
-KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS)))
+KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS))) \
+              $(KOBJ_DIR)/mlkem_lib_manifest.o
+
+# Probe link of the SHIPPED archive (no test hooks): the driver objects plus
+# mlkem.a, every public entry forced in with -u so ld65 pulls every member.
+# Measures the footprint of the bytes a consumer actually links (§6.6) and
+# proves the archive links on its own.
+LIB_PROBE     = $(BUILD_DIR)/mlkem-lib.prg
+LIB_PROBE_MAP = $(BUILD_DIR)/mlkem-lib.map
+LIB_PROBE_PULL = -u mlkem_keygen -u mlkem_encaps -u mlkem_decaps -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
+DRIVER_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS)))
 
 # main.o MUST come first so `start` lands at $080D, matching SYS 2061.
 LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS)))
@@ -157,8 +183,9 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
-        bench bench-sampler tables lib lib-keccak \
-        check-manifest check-archives check-staleness check-prefix vectors help
+        bench bench-sampler bench-kem tables lib lib-keccak \
+        check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
+        vectors help
 
 all: $(PRG)
 
@@ -191,7 +218,12 @@ $(OBJ_DIR)/mlkem_lib_manifest.o $(TOBJ_DIR)/lib_manifest.o: $(SRC_DIR)/precalc_t
 $(OBJ_DIR)/mlkem_%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) -o $@ $<
 
-$(OBJ_DIR) $(TOBJ_DIR):
+# The mlkem-keccak.a manifest: same source, same CONTRACT_DEFINES, plus the
+# member-set selector. Nothing else is ever built into KOBJ_DIR.
+$(KOBJ_DIR)/mlkem_lib_manifest.o: $(SRC_DIR)/lib_manifest.s $(SRC_DIR)/precalc_table.inc | $(KOBJ_DIR)
+	$(CA65) $(ALL_CA65FLAGS) -D MLKEM_KECCAK_ONLY=1 -o $@ $<
+
+$(OBJ_DIR) $(TOBJ_DIR) $(KOBJ_DIR):
 	@mkdir -p $@
 
 $(BUILD_DIR):
@@ -202,11 +234,20 @@ $(LIB_DIR):
 
 # --- §6.1 archives ----------------------------------------------------------
 
-lib: $(ARCHIVE) $(LIB_DIR)/mlkem.inc $(LIB_DIR)/zp_config.s $(LIB_DIR)/cfg/mlkem-example.cfg
+SHIPPED = $(LIB_DIR)/mlkem.inc $(LIB_DIR)/zp_config.s $(LIB_DIR)/sqtab_base.inc $(LIB_DIR)/cfg/mlkem-example.cfg
+
+# mlkem.a IS the ML-KEM archive: K-PKE/ML-KEM cannot be separated from the
+# sponge it hashes with, so HANDOFF-P2's "mlkem-kem.a alongside" would be a
+# byte-identical second name for it. Recorded in README as a divergence; no
+# `lib-kem` target.
+lib: $(ARCHIVE) $(SHIPPED)
 	@echo "§6.1 archive: $(ARCHIVE)"
 
-lib-keccak: $(ARCHIVE_KECCAK) $(LIB_DIR)/mlkem.inc $(LIB_DIR)/zp_config.s $(LIB_DIR)/cfg/mlkem-example.cfg
+lib-keccak: $(ARCHIVE_KECCAK) $(SHIPPED)
 	@echo "§6.1 archive: $(ARCHIVE_KECCAK)"
+
+$(LIB_PROBE): $(ARCHIVE) $(DRIVER_OBJS) $(CFG)
+	$(LD65) -C $(CFG) $(LIB_PROBE_PULL) -o $@ -m $(LIB_PROBE_MAP) $(DRIVER_OBJS) $(ARCHIVE)
 
 $(ARCHIVE): $(LIB_OBJS) | $(LIB_DIR)
 	@rm -f $@
@@ -217,17 +258,25 @@ $(ARCHIVE_KECCAK): $(KECCAK_OBJS) | $(LIB_DIR)
 	$(AR65) r $@ $(KECCAK_OBJS)
 
 # Shipped alongside every archive: the public header, the consumer-assembled
-# ZP source (§6.2), and the starter cfg fragment (§4).
+# ZP source (§6.2), the §8.1 placement header (a consumer needs
+# LIB_SHARED_SQTAB_BASE for its own §6.7 guard, and the header is the ONLY
+# place the default lives), and the starter cfg fragment (§4).
 $(LIB_DIR)/mlkem.inc: $(SRC_DIR)/mlkem.inc | $(LIB_DIR)
 	@cp $< $@
 $(LIB_DIR)/zp_config.s: $(SRC_DIR)/zp_config.s | $(LIB_DIR)
+	@cp $< $@
+$(LIB_DIR)/sqtab_base.inc: $(SRC_DIR)/sqtab_base.inc | $(LIB_DIR)
 	@cp $< $@
 $(LIB_DIR)/cfg/mlkem-example.cfg: $(CFG_DIR)/mlkem-example.cfg | $(LIB_DIR)
 	@cp $< $@
 
 # --- checks (§6.1: the lib/lib-* namespace is reserved for archives) --------
 
-# Fails if a driver/harness object ever lands in an archive.
+# (a) no driver/harness object ever lands in an archive (§6.1);
+# (b) each archive's manifest describes ITS member set (§6.4): mlkem.a carries
+#     the §8.0 sqtab bits and the three §8.4 rows, mlkem-keccak.a carries
+#     neither. Read from the extracted member with od65 — od65 on an archive
+#     prints nothing and exits 0.
 check-archives: lib lib-keccak
 	@fail=0; \
 	for a in $(ARCHIVE) $(ARCHIVE_KECCAK); do \
@@ -237,6 +286,8 @@ check-archives: lib lib-keccak
 	  done; \
 	done; \
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
+	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 6912 3
+	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 1536 0
 
 # §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
 # has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
@@ -257,8 +308,14 @@ check-prefix:
 
 # Reports measured segment sizes so the §5 footprint equates can be refreshed
 # safe-direction (>= measured, rounded UP to the next 256-byte boundary).
-check-manifest: $(PRG)
-	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py $(MAPFILE) $(SRC_DIR)/lib_manifest.s
+check-manifest: $(PRG) $(LIB_PROBE)
+	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py $(MAPFILE) $(LIB_PROBE_MAP) $(SRC_DIR)/lib_manifest.s
+
+# §6.7 constraint 3: the image guard must be PROVEN to fire. Builds once with
+# the sqtab window deliberately inside the image and requires the link to
+# fail, then restores the default configuration.
+check-sqtab-guard:
+	@$(TOOLS_DIR)/check_sqtab_guard.sh
 
 # --- tests ------------------------------------------------------------------
 
@@ -320,7 +377,10 @@ test-mlkem-full: $(PRG)
 
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
-test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
+# The VICE suites run first on the PRG `make` just built; the two checks
+# that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
+# them, and check-prefix last (it rebuilds the archives through a sub-make).
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -332,6 +392,12 @@ bench: $(PRG)
 # plus a constant-time check (four inputs each must measure identically).
 bench-sampler: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_sampler.py
+
+# WP4: KeyGen / Encaps / Decaps and the NTT primitives, same instrument, same
+# calibration refusal, with the Keccak share separated out (permutation count
+# from the model x the permutation cost measured in the same link).
+bench-kem: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_kem.py
 
 # Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
 # constants from the validated models.
@@ -349,7 +415,7 @@ help:
 	@echo "make              standalone test PRG -> $(PRG)"
 	@echo "make lib          $(ARCHIVE)"
 	@echo "make lib-keccak   $(ARCHIVE_KECCAK)"
-	@echo "make test         full suite (test-ref + contract checks)"
+	@echo "make test         full suite (oracles, every VICE suite, contract checks)"
 	@echo "make test-ref     oracle self-tests, Keccak + ML-KEM (Python only, no VICE)"
 	@echo "make test-vice    per-step differential trace under VICE"
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
@@ -359,9 +425,12 @@ help:
 	@echo "make test-mlkem   WP3 K-PKE/ML-KEM KATs + hazmat + CT decaps in VICE (add -full)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
+	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
-	@echo "make check-archives  no driver objects in archives (§6.1)"
+	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
+	@echo "make check-staleness §6.3 both legs, on the ZP, sqtab-base and Keccak-only knobs"
+	@echo "make check-sqtab-guard  §6.7: the image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"

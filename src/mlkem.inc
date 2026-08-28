@@ -121,7 +121,10 @@ MLKEM_INC_INCLUDED = 1
 ;                       LIB_MLKEM_BSS. Reads nothing else. Every routine above
 ;                       reads them, so a missing call is a wrong answer, not
 ;                       a crash.
-; Mirror the library's §6.7 guard in your own link:
+; Mirror the library's §6.7 guard in your own link (sqtab_base.inc ships next
+; to this header and carries the standalone default; a -D on your command
+; line overrides it — never define a second default yourself):
+;   .include "sqtab_base.inc"
 ;   .import __<AREA>_LAST__
 ;   .assert __<AREA>_LAST__ <= LIB_SHARED_SQTAB_BASE, lderror, "image overruns sqtab"
 .import mlkem_poly_ntt, mlkem_poly_intt, mlkem_poly_basemul
