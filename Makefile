@@ -120,12 +120,15 @@ TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 #                  slot; the consumer assembles src/zp_config.s themselves
 #     sqtab.s      §8.1 mul_tables_init (owner build) / import (deferring)
 #     ntt.s        P2 WP1: mod-3329 arithmetic, NTT/INTT/basemul, R tables
-LIB_SRCS = lib_version lib_manifest state keccak sponge sqtab ntt $(WP2_SRCS)
+LIB_SRCS = lib_version lib_manifest state keccak sponge sqtab ntt $(WP2_SRCS) $(WP3_SRCS)
 
 # P2 / WP2: samplers (SampleNTT, CBD) and codecs (ByteEncode/Decode12,
 # Compress/Decompress). Listed once, here, so the archive and the test PRG
 # cannot disagree about them.
 WP2_SRCS = sample codec
+
+# P2 / WP3: K-PKE and ML-KEM-768 KeyGen / Encaps / Decaps glue.
+WP3_SRCS = kem
 
 # The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge)
 # only. Diverged from LIB_SRCS at P2 WP1. NOTE (WP4): mlkem_lib_manifest.o now

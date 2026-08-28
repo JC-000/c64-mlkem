@@ -82,9 +82,15 @@ def build_thunk(labels, target=None, repeat=1, blank=True):
     return code
 
 
+# One ML-KEM primitive runs for tens of millions of cycles (P2), well past the
+# harness's 5 s default; the window is generous because a timeout here is a
+# measurement failure, not a result.
+JSR_TIMEOUT = 900.0
+
+
 def measure(transport, labels, target=None, repeat=1, blank=True):
     write_bytes(transport, THUNK_ADDR, build_thunk(labels, target, repeat, blank))
-    jsr(transport, THUNK_ADDR)
+    jsr(transport, THUNK_ADDR, timeout=JSR_TIMEOUT)
     raw = read_bytes(transport, labels["bench_cycles"], 4)
     return int.from_bytes(raw, "little")
 
