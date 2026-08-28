@@ -4,9 +4,9 @@ ML-KEM (FIPS 203) for the Commodore 64, in ca65 assembly.
 
 Part of the [JC-000](https://github.com/JC-000) 6502 crypto library ecosystem
 and conformant to [c64-lib-contract](https://github.com/JC-000/c64-lib-contract)
-**v0.11.0**. Precalculated-table enumeration per §8.0:
-[`docs/precalc-tables.md`](docs/precalc-tables.md) — nothing in this library
-clears the §8.0 floor.
+**v0.13.0 (head)**. Precalculated-table enumeration per §8.0/§8.4:
+[`docs/precalc-tables.md`](docs/precalc-tables.md) — three P2 tables
+(`sqtab`, `mlkem_zetas`, `mlkem_rtab`) clear the floor; no Keccak table does.
 
 The eventual product is **ML-KEM-768**, providing the post-quantum half of the
 hybrid `X25519MLKEM768` (0x11EC) key exchange for
@@ -14,15 +14,15 @@ hybrid `X25519MLKEM768` (0x11EC) key exchange for
 
 ---
 
-## Status: Phase 1 complete (v0.3.0)
+## Status: Phase 2 complete (v0.5.0)
 
-The work is phased. **Phase 1 is Keccak only** — the SHA-3 family that ML-KEM
-is built on:
+The work is phased. **Phase 1 was Keccak only** — the SHA-3 family ML-KEM is
+built on; **Phase 2 is everything else** in FIPS 203:
 
 | Phase | Scope | State |
 |---|---|---|
 | **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
-| P2 | NTT / mod-3329 arithmetic, samplers, keygen/encaps/decaps vs NIST ACVP | not started — gated on P1's numbers |
+| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 45/45 mutants killed; measured at 61.9M cycles keygen+decaps |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
 P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
@@ -32,16 +32,203 @@ by a measurement, and **it did not survive** — see below.
 
 ### Release history
 
-| Tag | Keccak-f[1600] | Resident | What it is |
-|---|---:|---:|---|
-| [`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) | 600,771 | 1,034 B | Functional baseline. Correct and complete, deliberately unoptimised — kept as the historical reference point. |
-| [`v0.3.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.3.0) | **456,605** | 1,477 B | rho+pi optimised: −24.0% cycles for +402 B. |
+| Tag | Keccak-f[1600] | keygen + decaps | Resident | What it is |
+|---|---:|---:|---:|---|
+| [`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) | 600,771 | — | 1,034 B | Functional baseline. Correct and complete, deliberately unoptimised — kept as the historical reference point. |
+| [`v0.3.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.3.0) | **456,605** | — | 1,477 B | rho+pi optimised: −24.0% cycles for +402 B. |
+| [`v0.4.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.4.0) | 456,605 | — | 1,477 B | Contract v0.11.0: bare version exports dropped (ABI 2), prefixed member basenames, §6.3 staleness guard. |
+| **v0.5.0** | 456,720 ¹ | **61,928,289** | **6,719 B** | **ML-KEM-768 complete.** KeyGen 26.8M, Encaps 30.2M, Decaps 35.1M cycles; 87.5% of the 7,680 B window; ABI unchanged (additive). |
+
+¹ Same code as v0.3.0; the RC table moved with the P2 rodata and 115 cycles of
+page-crossing moved with it (README, "Measured cycles per Keccak-f[1600]").
+
+---
+
+## Phase 2: ML-KEM-768 — measured
+
+> ## keygen + decaps = 61,928,289 cycles
+>
+> KeyGen **26,835,087** · Encaps **30,221,505** · Decaps **35,093,202**
+> · 60.6 s for keygen+decaps at 1.023 MHz · display blanked.
+
+**That is inside the roadmap's 40–70M keygen+decaps budget, in its upper
+half, and it is not going to get much better: 65% of it is Keccak.** The
+TLS client calls KeyGen once and Decaps once per handshake, so the
+post-quantum half of `X25519MLKEM768` costs the C64 **about a minute** of
+CPU per connection before X25519, the certificate chain and the record layer
+are counted. The 15–45M "non-Keccak" estimate the budget was built on is
+replaced by a measurement of **21.7M** (keygen+decaps, everything that is not
+a Keccak permutation) — inside that band, so the budget survives; but the
+band's *bottom* assumed a Keccak that does not exist on this CPU.
+
+Cycle counts are exact, reproduce to the cycle across runs (VICE is
+deterministic; `make bench-kem` measures each twice and refuses to report a
+number that did not), and are taken on ACVP `tcId 1` inputs — the same inputs
+`make test-mlkem-full` reports, so the two must agree. Instrument: the P1 CIA
+counter with the same calibration refusal.
+
+### Where the cycles go
+
+The Keccak share is not measured by subtraction — there is nothing to
+subtract against. It is the permutation *count* for the exact input (from the
+model; SampleNTT's block count depends on the public ρ) times the permutation
+cost measured in the same link. The arithmetic share likewise: operation
+counts × the measured NTT / INTT / basemul cost. "Rest" is samplers, codecs,
+K-PKE glue and the sponge's own per-block bookkeeping (3,850 cycles per block).
+
+| Primitive | cycles | Keccak-f × | = cycles | share | NTT / INTT / basemul | = cycles | share | rest |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| KeyGen | 26,835,087 | 43 | 19,638,960 | 73.2% | 6 / 0 / 9 | 6,246,663 | 23.3% | 949,464 |
+| Encaps | 30,221,505 | 44 | 20,095,680 | 66.5% | 3 / 4 / 12 | 8,094,284 | 26.8% | 2,031,541 |
+| Decaps | 35,093,202 | 45 | 20,552,400 | 58.6% | 6 / 5 / 15 | 11,420,641 | 32.5% | 3,120,161 |
+| **keygen + decaps** | **61,928,289** | **88** | **40,191,360** | **64.9%** | | **17,667,304** | **28.5%** | 4,069,625 |
+
+Per primitive, one call (`make bench-kem`; the NTT numbers were first
+measured by `make test-ntt` and reproduce exactly):
+
+| Routine | cycles | note |
+|---|---:|---|
+| `keccak_f1600` | 456,720 | 19,030 / round. P1's 456,605 plus 115 cycles of RC-table page crossings that moved with the rodata layout |
+| `mlkem_poly_ntt` | 579,016 | 896 butterflies + 127 per-block tables, ~560 per butterfly all-in |
+| `mlkem_poly_intt` | 665,120 | NTT shape + 256 scalings by 3303 |
+| `mlkem_poly_basemul` | 308,063 | 128 pairs × 4 general (secret × secret) multiplies |
+| one NTT butterfly multiply | ~330 | 2 quarter-square partials on `sqtab` + 14-entry per-block `U` table + table reduction |
+| one general multiply | ~440 | 3 partials + the 27-entry `|d|` table |
+
+Decaps is not "encaps plus a decrypt": K-PKE.Decrypt is 3 NTT + 3 basemul +
+1 INTT (≈ 3.3M) and the re-encryption is a full Encrypt (≈ 8.1M of
+arithmetic, 28 permutations). The implicit-rejection compare is 1,088 bytes
+of accumulate-OR and costs the same whether or not it matches — `make
+test-mlkem` pins the decaps cycle count identical for a valid ciphertext and
+for ciphertexts one bit off at each end.
+
+**What would move the number.** Keccak is 65% and the permutation is already
+where P1 left it; `theta` (36% of a permutation) is the only untried step.
+On the arithmetic side the multiply is the lever: ~48,000 multiplies per
+keygen+decaps at 330–440 cycles. The §8.3 canonical `ct_mul_8x8` body was
+rejected for exactly this reason (`docs/contract-p2-alignment.md` §3: ~4
+partials + 2 SMC re-bakes through `jsr` per 12×12 product, ≈ 5–8M more).
+A Montgomery-domain representation would remove the table reductions
+(~130 of the 330) at the cost of a range analysis this canonical-`[0, q)`
+design deliberately avoids.
+
+### Footprint
+
+Measured from the shipped `mlkem.a` linked into a probe image
+(`build/mlkem-lib.map`; no test hooks). The test PRG is 173 B larger.
+
+| Segment | bytes | of which |
+|---|---:|---|
+| `LIB_MLKEM_CODE` | 5,694 | Keccak 888 · sponge 281 · sqtab init 84 · NTT/field 1,598 · samplers 221 · codecs 681 · K-PKE/ML-KEM 1,941 |
+| `LIB_MLKEM_RODATA` | 1,025 | Keccak 308 · zetas + NTT constants 407 · CBD 32 · compress tables 256 (incl. 21 B `align = $40` pad) · 1 |
+| **resident total** | **6,719** | declared `LIB_MLKEM_RESIDENT_BYTES = 6912` (next 256-B boundary; also covers the 6,892 B test build) |
+| `LIB_MLKEM_BSS` | 6,641 | see below |
+
+Per work package, code + rodata:
+
+| | bytes | share |
+|---|---:|---:|
+| P1 Keccak + sponge | 1,477 | 22.0% |
+| WP1 field arithmetic + NTT (incl. `sqtab` init) | 2,089 | 31.1% |
+| WP2 samplers + codecs | 1,190 | 17.7% |
+| WP3 K-PKE + ML-KEM | 1,942 | 28.9% |
+| alignment pad | 21 | 0.3% |
+
+**6,719 B of the 7,680 B `CRYPTO_OVERLAY` window — 87.5%, 961 B headroom.
+No image split was needed** (HANDOFF-P2 decision 1's fallback). Looped,
+table-driven code throughout; the only unrolling is P1's eight rotation copy
+variants.
+
+**But the window is nominal.** The 7,680 B figure is the *size* of
+c64-https' `CRYPTO_OVERLAY` slot. In the current UCI cfg the slot is not
+empty: `TLS_DEFRAME_CODE`, `CERT_BUF_BSS` (2 KB), `VIEWER_CODE`,
+`X509_NAME_CODE` and `HTTPS_TARGET_RODATA` ride it, and the cfg's own comment
+puts the free space at **~2.5 KB in every default UCI profile**
+(`docs/contract-p2-alignment.md` §2.6). This library fits the window it was
+told to fit; it does not fit what is currently free in it, by ~4.2 KB. **The
+consumer will have to re-plan its overlay** — a P4, consumer-side decision,
+and one the user should have in front of them before this fit verdict is read
+as final.
+
+**BSS: 6,641 B**, none of it the caller's key material. It is eight
+page-aligned polynomials (4,096 B: the two polyvecs, one sampled `A[i][j]`
+consumed at once — the matrix is never stored — and the accumulator), the
+1,024 B `R1`/`R2` reduction tables, the 200 B Keccak state plus 394 B of
+sponge/rho-pi scratch, 320 B of chunk buffer, 128 B of hash scratch and the
+small stuff, plus ~300 B of page-alignment fill. **The wire buffers are the
+caller's and are NOT counted**: `ek` 1,184 B, `dk` 2,400 B, `c` 1,088 B — a
+consumer that holds all three needs 4,672 B more, and they need no alignment.
+The 1,024 B `sqtab` at `LIB_SHARED_SQTAB_BASE` is outside every segment
+(default `$9000` standalone; c64-https already owns one at `$BC00`).
+
+### How correctness is established, P2
+
+Three oracles, each for a different reason (`HANDOFF-P2.md`); all run by
+`make test-ref` (Python) before any 6502 comparison, then against the 6502 in
+VICE by `make test-ntt`, `test-sampler`, `test-mlkem`.
+
+| Oracle | What it proves | 6502 result |
+|---|---|---|
+| **NIST ACVP** (`ML-KEM-768-keyGen` / `encapDecap`, `internalProjection.json`) | byte-exact KeyGen and Encaps determinism (hazmat cannot fix `m`), the §7.2 modulus check, and implicit rejection — a broken re-encrypt yields a *wrong K silently*, and only the modified-ciphertext vectors catch it | **25 keyGen, 25 encaps, 10 decaps (modified ct), 10 + 10 key checks — all pass** (`make test-mlkem-full`) |
+| **`cryptography.hazmat` 48.0.0 / OpenSSL 3.6.2** | interop with code we did not write: `from_seed_bytes(d‖z)` equals our `ek`; their `encapsulate()` ciphertexts decapsulate to their `ss` on the 6502; ours decapsulate in OpenSSL | pass, both directions (4 seeds in VICE; 100 seeds / 300 with `--full` against the model) |
+| **`tools/mlkem_ref.py`** (ours, white-box) | localisation: every NTT layer, sampler, codec and K-PKE step is individually callable behind `MLKEM_TEST_HOOKS`, so a failure names its layer instead of a wrong digest | `test-ntt` (per layer, edge polys, CT cycle pin), `test-sampler` (incl. a 4-block SampleNTT seed and a `byte_decode_12` field ≥ q), `test-mlkem` K-PKE hooks |
+
+The full VICE run is **383 checks** across the three suites plus P1's 199
+per-step Keccak checks and 820 CAVP vectors. Constant-time properties are
+*measured*, not asserted: the NTT's cycle count is pinned identical across
+all-zero / all-(q−1) / random / impulse inputs, every codec across four
+inputs, and decaps across valid and bit-flipped ciphertexts.
+
+**Mutation gate.** Each work package's tests were written *first, by a
+different agent, from FIPS 203 and the oracle* — red against stubs before the
+implementer saw them — and then had to go red again against deliberate
+faults applied to the green tree (`tools/mutants/*.patch`, `tools/mutate.py`):
+**45 mutants — WP1 15, WP2 13, WP3 17 — all killed, each by the test the
+manifest names.** They include the brief's required set (a wrong ζ, an
+off-by-one reduction bound, a skipped and an early-exit rejection compare, a
+CBD sampler one byte short, a `bpl` on a count ≥ 128 — P1's real
+`keccak_clear` bug — a swapped `du`/`dv`, a missing final reduction) and, on
+the WP2 side, the RODATA `align = $40` reverted (the page-straddle assert
+must then fail the link). The gates found zero test-suite defects in WP1/WP3
+and one weak vector in WP2, fixed before merge.
+
+### P2 divergences and obligations
+
+Where SPEC and `HANDOFF-P2.md` disagree, SPEC wins (§6.1); where the
+implementation chose a behaviour FIPS 203 leaves to the caller, it is pinned
+here and in `src/mlkem.inc`.
+
+| # | Brief / spec says | What shipped | Why |
+|---|---|---|---|
+| 7 | HANDOFF-P2 WP4: "`mlkem-kem.a` alongside the existing archives" | **no `lib-kem` target.** `mlkem.a` *is* the ML-KEM archive | K-PKE/ML-KEM cannot be separated from the sponge it hashes with; a third archive would be a byte-identical second name for `mlkem.a`. `docs/contract-p2-alignment.md` does not call for it. |
+| 8 | §4: `LIB_MLKEM_RODATA` had no alignment requirement | **`align = $40` is now REQUIRED** on `LIB_MLKEM_RODATA` | `src/codec.s` places three secret-indexed tables (42/42/64 B) at 64 B boundaries so no `abs,x` read crosses a page (cost would depend on the secret). ld65 silently drops a source `.align` the cfg does not permit; the sources carry `lderror` asserts, so a cfg that omits it **fails the link**. Mutant `wp2-rodata-align-reverted` pins that. |
+| 9 | §8.1: consumer-chosen `LIB_SHARED_SQTAB_BASE` | standalone default **`$9000`**; `sqtab_base.inc` shipped next to `mlkem.inc`; consumer mirrors the §6.7 guard | Page-aligned, clear of every sibling default (`$7800`, `$8000/$8400`, `$9C00`, `$B800/$BC00`) and of the test harness's `$C000–$CFFF`; RAM under every `$01` state. The multiply bakes the page byte into its `abs,x` sites, so a stale object is a wrong address — `make check-staleness` covers the knob and `make check-sqtab-guard` proves the guard fires. |
+| 10 | FIPS 203 §7.2: `ByteDecode12` output "must be < q" | **`mlkem_byte_decode_12` is a raw pass-through**: a field ≥ q is stored unreduced (3329..4095) | The modulus check on an encapsulation key is the caller's per §7.2, and this makes it *possible*: a decoder that reduced mod q would hide the violation. `mlkem_encaps` performs the explicit per-coefficient `< q` compare over all 768 fields (public data; may exit early) and returns `A = 1` with nothing written. ACVP `encapsulationKeyCheck` 10/10. |
+| 11 | FIPS 203 §7.3: decaps input check `H(ek) == dk[2336..2368]` | **not performed** by `mlkem_decaps` | §7.3 assigns it to the caller (the C64 API takes pointers, not lengths, either). A dk with a wrong `H(ek)` field is processed mechanically by Alg. 18 with the *stored* h; the result is pinned to a model that mirrors that (test D2), so the behaviour is deterministic and documented. ACVP `decapsulationKeyCheck` 10/10 against that model. |
+| 12 | §8.4: enumerate tables ≥ 256 B that are hot-loop-read | `mlkem_rtab` (1 KB of BSS **built at init**) *is* enumerated | WP1 read "precalculated" as "in the image" and filed no row; WP4 reversed it on the `sqtab` precedent — `sqtab` is also built at init by `mul_tables_init` and §8.1 makes *its* row mandatory. Region `RAM`, like `sqtab`. |
+| 13 | §6.4: one manifest per member set | `mlkem-keccak.a` ships its **own manifest object** (`-D MLKEM_KECCAK_ONLY=1`, `build/kobj`): masks `0/0`, no §8.4 rows, `RESIDENT_BYTES = 1536` | Its member set never reads `sqtab`. `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** (§6.3 rejection branch — no target can honor it build-wide). `check-archives` pins both manifests with `od65`; `check-staleness` pins that alternating `lib` / `lib-keccak` on a warm tree rebuilds nothing and overwrites neither. |
+| 14 | §8.3 canonical `ct_mul_8x8` | **not taken**; private `mlkem_`-prefixed 12×12 multiply on `sqtab` directly; bit `$0004` clear in both masks | `docs/contract-p2-alignment.md` §3: the canonical 8×8 body costs ~4 partials + 2 re-bakes per product through `jsr`, ≈ 5–8M cycles per keygen+decaps more than the inline 6+6 split. CT obligations are met privately: every secret-indexed table is page-aligned and the cycle count is pinned input-independent. |
+
+Contract alignment for P2 — the v0.11.0 → v0.13.0 clause diff, the exact
+§8.1 / §8.0 / §6.7 shapes and the items that need the user (a §8.4
+zero-consumer carve-out for bare `LIB_PRECALC_*`, the `-D` quoting wording in
+§8.1, the overlay free-space question, the `mlkem-keccak.a` manifest knob) —
+is in [`docs/contract-p2-alignment.md`](docs/contract-p2-alignment.md); the
+adopters-row and intake-PR drafts are in `docs/upstream/` and have **not**
+been pushed.
+
+---
+
+## Phase 1: Keccak — measured
 
 ### Measured cycles per Keccak-f[1600]
 
 > ## 456,605 cycles
 >
 > 19,025 cycles/round · 446 ms at 1.023 MHz · display blanked.
+
+(456,720 in the v0.5.0 link — same code; see the note on the RC table below.
+`make bench` reports whatever the current link measures.)
 
 **24.0% faster than the v0.2.0 baseline** (600,771 cycles), all of it from
 `rho+pi`. The unoptimised form is preserved at tag
@@ -120,7 +307,7 @@ Two traps, both of which produced plausible-but-wrong numbers here first:
 `make bench` calibrates against a routine of known cost (1,293 cycles) and
 **refuses to print a Keccak number if that calibration is off**.
 
-### Footprint
+### Footprint (P1, the `mlkem-keccak.a` member set)
 
 | Segment | bytes |
 |---|---:|
@@ -130,9 +317,9 @@ Two traps, both of which produced plausible-but-wrong numbers here first:
 | `LIB_MLKEM_BSS` | 594 |
 
 **1,477 B of the ~3 KB P1 budget — 48.1%** (886 B permutation + 283 B sponge).
-The permutation grew 402 B to buy the 24% speedup. (The full ML-KEM image must fit a
-7,680-byte window in c64-https.) `make check-manifest` re-measures from the map
-file and **fails** if a declared footprint equate has fallen below measured.
+The permutation grew 402 B to buy the 24% speedup. `make check-manifest`
+re-measures both member sets from the map files and **fails** if a declared
+footprint equate has fallen below measured.
 
 ---
 
@@ -204,17 +391,29 @@ Requires the cc65 suite (`ca65`/`ld65`/`ar65`) and, for the VICE tests,
 
 ```sh
 make                  # standalone test PRG -> build/mlkem.prg (+ labels, map)
-make test             # full suite
-make test-ref         # oracle self-test only (pure Python, no VICE)
-make test-vice        # per-step differential trace under VICE
+make test             # full suite: oracles, every VICE suite, every contract check
+make test-ref         # oracle self-tests only (pure Python, no VICE): Keccak + ML-KEM
+make test-vice        # per-step Keccak differential trace under VICE
 make test-sha3        # FIPS 202 KATs (make test-sha3-full for all 820)
+make test-ntt         # mod-3329 arithmetic and NTT, per layer (-full: the sweep)
+make test-sampler     # SampleNTT, CBD, ByteEncode/Decode12, Compress/Decompress
+make test-mlkem       # K-PKE + ML-KEM-768 vs ACVP, hazmat, CT decaps (-full: every vector)
+make test-mutants     # the 45-patch mutation gate (tools/mutants/manifest.json)
 make bench            # cycle-exact Keccak-f[1600] measurement
-make tables           # regenerate src/keccak_tables.inc from the model
-make test-ref -- --full   # all 100 Monte Carlo chains rather than 3
-make check-manifest   # measured segment sizes vs the §5 footprint equates
-make check-archives   # assert no driver object leaked into an archive
+make bench-kem        # KeyGen / Encaps / Decaps + NTT cycles, Keccak share separated
+make bench-sampler    # WP2 sampler/codec cycles + constant-time check
+make tables           # regenerate src/keccak_tables.inc + src/mlkem_tables.inc
+make check-manifest   # measured segment sizes vs the §5 footprint equates, both archives
+make check-archives   # no driver object in any archive; per-archive manifest values
+make check-staleness  # §6.3 both legs on three knobs
+make check-sqtab-guard  # §6.7: the image guard fires on a deliberate overrun
+make check-prefix     # every archive export under mlkem_ / LIB_MLKEM_ / keccak_
 make vectors          # fetch the CAVP LongMsg sets (~4.8 MB, not tracked)
 ```
+
+**VICE suites cannot run concurrently** — two harness instances collide on
+the monitor port. `make test` runs them one at a time; do not run a second
+`make test-*` or `bench*` in parallel on the same machine.
 
 Tests use the shared venv interpreter, since the system `python3` lacks the
 harness:
@@ -225,9 +424,10 @@ harness:
 
 `C64_SKIP_BUILD=1` makes a test reuse the existing binary instead of rebuilding.
 
-**No REU.** P1 uses none — the Keccak state is 200 bytes of main memory and
-there is nothing to stage. Do **not** pass `-reu` to VICE for this library's
-tests; the c64-https default carries it and it should not be cargo-culted here.
+**No REU.** Neither phase uses one — the Keccak state is 200 bytes of main
+memory and the matrix `A` is never stored. Do **not** pass `-reu` to VICE for
+this library's tests; the c64-https default carries it and it should not be
+cargo-culted here.
 
 ---
 
@@ -243,13 +443,30 @@ member set a consumer has edited is outside every manifest claim it ships
 (contract §6.1).
 
 Each archive ships alongside `mlkem.inc` (the public header),
-`zp_config.s`, and `cfg/mlkem-example.cfg`.
+`zp_config.s`, `sqtab_base.inc` (the §8.1 placement header) and
+`cfg/mlkem-example.cfg`. `mlkem.a` links on its own: `make check-manifest`
+proves it by linking the archive into a probe image.
 
 **Segments** to place in your cfg — `LIB_MLKEM_CODE`, `LIB_MLKEM_RODATA`,
-`LIB_MLKEM_BSS`. `LIB_MLKEM_BSS` **requires `align = $100`** and must be the
-last segment in a file-emitting area; `cfg/mlkem-example.cfg` states what
-breaks if either is dropped, and `src/state.s` carries a hard `.assert` so an
-alignment mistake fails the link rather than corrupting at runtime.
+`LIB_MLKEM_BSS`. `LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
+`LIB_MLKEM_BSS` **requires `align = $100`** and must be the last segment in a
+file-emitting area; `cfg/mlkem-example.cfg` states what breaks if any is
+dropped, and the sources carry hard `.assert`s so an alignment mistake fails
+the link rather than corrupting at runtime.
+
+**Boot-time init, once, both idempotent:** `mul_tables_init` fills the 1 KB
+§8.1 `sqtab` at `LIB_SHARED_SQTAB_BASE` (this library provides it unless you
+build with `-D SHARED_SQTAB_INIT`, in which case your designated owner does
+and this library imports it — never both); `mlkem_arith_init` builds the
+mod-q tables in `LIB_MLKEM_BSS`. Mirror the §6.7 guard in your own link
+(`cfg/mlkem-example.cfg` shows the three lines).
+
+**Calling ML-KEM-768:** six 16-bit pointers in the parameter block at
+`mlkem_arg_ek` (`ek`, `dk`, `ct`, `key`, `seed`, `z`), set once; then
+`jsr mlkem_keygen` / `mlkem_encaps` / `mlkem_decaps`. Wire formats verbatim,
+no alignment requirement. `mlkem_encaps` returns `A = 1` (and `mlkem_status`)
+for an `ek` that fails the §7.2 modulus check, writing nothing.
+`mlkem_decaps` never fails. Full contract in `src/mlkem.inc`.
 
 **Zero page** uses contract §6.2's *consumer-assembled* model — the shape the
 spec recommends for new libraries. No archive TU defines a slot; you assemble
@@ -257,8 +474,11 @@ spec recommends for new libraries. No archive TU defines a slot; you assemble
 rebuild**:
 
 ```sh
-ca65 -D mlkem_zp_src=0x40 -D mlkem_zp_dst=0x42 src/zp_config.s
+ca65 -D mlkem_zp_src=0x40 -D mlkem_zp_dst=0x42 -D mlkem_zp_mul=0x48 src/zp_config.s
 ```
+
+Five slots, 16 bytes: `mlkem_zp_src/dst/len/tmp` (2 B each, P1) and
+`mlkem_zp_mul` (8 B, the multiply's operand/product scratch, P2).
 
 Override values must be `$`-free (`0x40` or decimal). An unquoted `$40` is
 eaten by the shell and silently becomes address `$00`; through make, `$40` and
@@ -270,7 +490,7 @@ at any stage.
 ## Divergences from the P1 handoff brief
 
 Per contract §6.1, where SPEC and the handoff disagree, **SPEC wins**; the
-differences are recorded here.
+differences are recorded here. (P2's rows 7–14 are in the Phase 2 section.)
 
 | # | Handoff says | SPEC v0.11.0 / reality | Resolution |
 |---|---|---|---|

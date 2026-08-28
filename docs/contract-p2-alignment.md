@@ -393,10 +393,13 @@ Owed by WP1 (NTT implementer, with this document as the shape):
 `mlkem_zetas`, the §6.7 guard in `src/main.s`, and `main.s` calling
 `mul_tables_init` once at start.
 
-Owed by WP4: `check-staleness` second knob leg on `LIB_SHARED_SQTAB_BASE`;
-`check-sqtab-guard` (deliberate overrun fires); the `mlkem-keccak.a` manifest
-configuration (§2.5); refreshed footprint equates; README divergence row(s)
-if any of the above departs from HANDOFF-P2.
+Owed by WP4 — **all landed at v0.5.0**: `check-staleness` knob legs on
+`LIB_SHARED_SQTAB_BASE` and on the Keccak-only manifest (both legs each);
+`check-sqtab-guard` (deliberate overrun at `0x0900` fails the link on the
+guard's message); the `mlkem-keccak.a` manifest configuration (§2.5, taken
+as a separate manifest object under `-D MLKEM_KECCAK_ONLY=1`, rejected in
+`CONTRACT_DEFINES` at parse time); footprint equates 6912 / 1536 refreshed
+from a probe link of the shipped archive; README divergence rows 7–14.
 
 ## 7. Items that need the user (normative or cross-repo)
 

@@ -1,29 +1,41 @@
 # CLAUDE.md — working notes for agents in this repo
 
-Read `HANDOFF.md` first; it is the authoritative P1 brief. This file records
-the conventions that are easy to get wrong.
+Read `HANDOFF.md` (P1, Keccak) and `HANDOFF-P2.md` (P2, ML-KEM-768) first;
+they are the authoritative briefs. This file records the conventions that are
+easy to get wrong.
 
 ## Scope discipline
 
-**P1 is Keccak only.** No NTT, no ML-KEM arithmetic, no samplers — that is P2,
-gated on P1's measured cycle count and starting from its own handoff. No
-changes to `c64-https` (consumer wiring is Phase 4, consumer-side). No ML-DSA
-ever. No REU anywhere in P1.
+P1 and P2 are both complete (v0.5.0). No changes to `c64-https` (consumer
+wiring is Phase 4, consumer-side — including re-planning its overlay, see
+below). No ML-DSA ever. No REU anywhere.
 
-## The four numbers P1 owed — all in hand as of v0.3.0
+## The numbers P1 + P2 owed — all in hand as of v0.5.0
 
-1. **Keccak-f[1600] = 456,605 cycles** (19,025/round). Was 600,771 before the
-   rho+pi pass; `v0.2.0` preserves that baseline.
-2. **1,477 B resident** (1,169 code + 308 rodata), 594 B BSS. 48.1% of the
-   ~3 KB budget.
-3. **820 NIST CAVP ShortMsg vectors** across the four functions, plus 199
-   per-step differential checks and the streaming properties. All pass.
-4. **Five SPEC divergences**, tabulated in README.
+1. **Keccak-f[1600] = 456,605 cycles** (19,025/round; 456,720 in the v0.5.0
+   link — the RC table's page crossings move with the rodata layout). Was
+   600,771 before the rho+pi pass; `v0.2.0` preserves that baseline.
+2. **KeyGen 26,835,087 · Encaps 30,221,505 · Decaps 35,093,202 cycles.**
+   keygen+decaps = **61,928,289**, of which **40.2M (65%) is 88 Keccak
+   permutations** and 17.7M is NTT/INTT/basemul (579,016 / 665,120 / 308,063
+   per call). Inside the 40–70M budget, upper half. About a minute of CPU per
+   TLS handshake for the PQ half alone.
+3. **6,719 B resident** shipped (5,694 code + 1,025 rodata; 6,892 with test
+   hooks), declared 6912. **87.5% of the 7,680 B `CRYPTO_OVERLAY` window, no
+   split needed** — but only ~2.5 KB of that window is actually free in
+   c64-https' default UCI cfg, so the consumer must re-plan its overlay (P4).
+   Keccak-only member set: 1,477 B, unchanged. **BSS 6,641 B**, excluding the
+   caller's ek/dk/ct (4,672 B).
+4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
+   ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
+   199 per-step Keccak checks; **45/45 mutants killed** (WP1 15, WP2 13,
+   WP3 17). All constant-time claims are measured cycle pins, not assertions.
+5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
 
-**The headline is bad news and must not be softened:** the measurement is
-1.3x the TOP of the roadmap's 150k–350k estimate band. Keccak alone is
-25–27M cycles for keygen+decaps against a 40–70M total budget. Any planning
-figure derived from the old estimate is void.
+**The headline is bad news and must not be softened:** Keccak is 1.3x the
+TOP of the roadmap's estimate band and it is 65% of every ML-KEM operation.
+The non-Keccak 15–45M estimate came in at 21.7M; the total survives the 40–70M
+budget only because that band was wide.
 
 ## Toolchain traps
 
@@ -53,6 +65,29 @@ figure derived from the old estimate is void.
   assert against exactly that.
 - **Branch displacement is 8-bit.** Both `keccak_rhopi`'s lane loop and any
   other long body need `beq :+ / jmp target` instead of a plain `bne`.
+- **A page-straddle `.assert` needs a backing align, or it is a coin toss.**
+  `src/codec.s` asserts three secret-indexed tables do not cross a page; the
+  assert only *fails* when the layout happens to straddle, so a green link
+  proves nothing about the next link. The tables carry `.align 64` — which
+  brings the next trap.
+- **ld65 silently drops a source `.align` the cfg does not permit.** A
+  segment's cfg entry needs `align = $40` (or larger) for a `.align 64` in
+  the source to take effect; without it ld65 warns (only if a source-level
+  align exists to check against) and proceeds. `LIB_MLKEM_RODATA` therefore
+  **requires `align = $40`** in every consumer cfg, and the `lderror` asserts
+  are what turn the dropped align into a failed link. The reverted-align
+  mutant pins that.
+- **Any harness scratch address is a claim about the image size.** `test_sha3`
+  hardcoded `MSG_BUF = $2000` as "well above the PRG image" when the image
+  ended at ~$0E47; after WP3 `LIB_MLKEM_RODATA` spanned `$1FC0–$23C0`, the
+  test wrote its message over the Keccak round constants and every vector
+  failed, including the empty message. Scratch now sits above `$5000` and
+  every VICE test checks `__MAIN_LAST__` from the labels file against its
+  scratch range at startup. Do the same in any new test.
+- **One ML-KEM call is tens of millions of cycles.** The harness's default
+  `jsr` timeout is 5 s; keygen is ~30 s emulated. `bench_keccak.JSR_TIMEOUT`
+  is 900 s and `test_mlkem.py` sets its own. A timeout here is a measurement
+  failure, not a result.
 
 ## Contract obligations that bind file layout
 
@@ -96,7 +131,27 @@ verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
   (`main.s`, `bench.s`) do, deliberately — they are the consumer in the
   standalone build and ship in no archive.
 - The `lib` / `lib-*` make-target namespace is **reserved for targets that
-  produce archives**. Checks take `check-*`.
+  produce archives**. Checks take `check-*`. There is deliberately **no
+  `lib-kem`**: `mlkem.a` is the ML-KEM archive (HANDOFF-P2's `mlkem-kem.a`
+  would be a byte-identical second name; README divergence 7).
+- **`mlkem-keccak.a` has its own manifest object** (`build/kobj`, assembled
+  with `-D MLKEM_KECCAK_ONLY=1`): masks 0/0, no §8.4 rows, `RESIDENT_BYTES`
+  1536. §6.4 forbids one manifest describing two member sets.
+  `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** —
+  no target can honor it build-wide. `check-archives` pins both manifests'
+  values with `od65`; `check-staleness` pins that alternating `lib` /
+  `lib-keccak` on a warm tree rebuilds nothing and overwrites neither.
+- **`sqtab` lives outside every segment** at `LIB_SHARED_SQTAB_BASE`
+  (`src/sqtab_base.inc`, the only place the default `$9000` lives; shipped
+  next to `mlkem.inc`). The multiply bakes the page byte into its `abs,x`
+  sites, so the base is in the §6.3 signature. `src/main.s` carries the §6.7
+  guard and `make check-sqtab-guard` proves it fires. Never `.export`
+  `sqtab_lo/hi` or the base; never invent a `sqtab_init` alias.
+- **§8.4 rows for tables built at init.** `mlkem_rtab` (the 1 KB R1/R2
+  reduction tables, BSS, built by `mlkem_arith_init`) IS enumerated — `sqtab`
+  is built at init too and §8.1 makes its row mandatory. Region RAM. Add a
+  row and a `LIB_PRECALC_TABLE` invocation in the same commit as any new
+  table ≥ 256 B that is hot-loop-read or page-aligned.
 
 ## Validation
 
@@ -144,7 +199,8 @@ Two things about the fix that will look like over-engineering and are not:
   compares as not-newer and nothing rebuilds. Also measured.
 
 `check-staleness` asserts **both** legs — changed knob flips the artifact, and
-unchanged knob rebuilds nothing. §6.3 is explicit that leg 1 alone passes on a
+unchanged knob rebuilds nothing — on three knobs: the ZP slot, the sqtab base,
+and the Keccak-only manifest. §6.3 is explicit that leg 1 alone passes on a
 guard that has degraded to an unconditional rebuild.
 
 ## Tests
@@ -159,7 +215,14 @@ guard that has degraded to an unconditional rebuild.
   `/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3`.
 - Keep the default suite fast; put exhaustive runs behind a flag. VICE
   round-trips dominate, so a vector count that is trivial in Python is not
-  trivial under the emulator.
+  trivial under the emulator. `make test` (default depth) is ~90 s of VICE;
+  `make test-mlkem-full` alone is ~150 calls of 10–40M cycles.
+- **VICE suites cannot run concurrently on one machine** — two harness
+  instances collide on the monitor port and one of them fails in a way that
+  looks like a test failure. `make test` runs them one at a time; an agent
+  running a mutation gate must have the machine's VICE to itself.
+- Read-only for implementers: `tools/test_*.py`, `tools/mlkem_ref.py`,
+  `tools/mutants/`. The red author owns them; disputes go to the supervisor.
 
 ## Benchmarking
 
@@ -189,3 +252,10 @@ VICE is cycle-deterministic, so a repeated run must reproduce exactly; a
 varying count means the measurement is wrong, not the emulator. Useful
 independent check: the sponge overhead measures exactly 3,850 cycles/block both
 before and after the rho+pi work, code the optimisation never touched.
+
+`make bench-kem` measures KeyGen/Encaps/Decaps on ACVP `tcId 1` inputs and
+**checks the outputs against the model** before printing a number — a cycle
+count for a call that computed the wrong thing is worthless. The Keccak share
+is a permutation *count* from the model times the permutation cost measured
+in the same link, never a subtraction. `test_mlkem.py --full` prints the same
+keygen/encaps counts and must agree to the cycle.
