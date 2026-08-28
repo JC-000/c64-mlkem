@@ -77,4 +77,55 @@ MLKEM_INC_INCLUDED = 1
 .import mlkem_shake128_init, mlkem_shake256_init
 .import mlkem_absorb, mlkem_squeeze, mlkem_sponge_len
 
+; --- P2: mod-3329 polynomial arithmetic and the NTT (FIPS 203 Alg. 9-12) ---
+;
+; POLYNOMIAL LAYOUT — split-plane, 512 bytes, PAGE-ALIGNED:
+;     ptr + 0   .. ptr + 255   low  bytes of c[0..255]
+;     ptr + 256 .. ptr + 511   high bytes of c[0..255]
+; Coefficients are canonical, 0 <= c < 3329, at every call boundary (high
+; byte 0..12). PAGE ALIGNMENT IS A HARD REQUIREMENT: the routines patch only
+; the high byte of their plane accesses, so a pointer whose low byte is not
+; $00 is silently addressed at its page base. It is also what keeps every
+; indexed access input-independent in cost. Allocate polynomial buffers with
+; .align 256 and assert it, the keccak_state pattern.
+;
+; Pointers: mlkem_zp_dst = the in-place operand and the result;
+;           mlkem_zp_src = the second operand of a binary op (never written).
+; Clobbers: A/X/Y, mlkem_zp_tmp, mlkem_zp_len, mlkem_zp_mul. The pointer slots
+; themselves are preserved.
+;
+;   mlkem_poly_ntt      (dst) <- NTT(dst)                         Alg. 9
+;   mlkem_poly_intt     (dst) <- NTT^-1(dst), incl. the x3303      Alg. 10
+;   mlkem_poly_basemul  (dst) <- MultiplyNTTs(dst, src)            Alg. 11/12
+;   mlkem_poly_add      (dst) <- dst + src mod q
+;   mlkem_poly_sub      (dst) <- dst - src mod q   (wraps to +q, never negative)
+;   mlkem_poly_reduce   (dst) <- dst mod q for ANY unsigned 16-bit coefficient
+;                       (byte_decode_12 output, < 2q add/sub intermediates,
+;                       < 6q dot-product accumulations all included)
+;
+; Cycle counts are in README (measured; `make test-ntt` prints them).
+;
+; CONSTANT TIME: none of these branches on a coefficient; every table indexed
+; by secret-derived data is page-aligned. Timing depends on nothing but the
+; call.
+;
+; INIT — the consumer's job, once at boot, both idempotent:
+;   mul_tables_init     contract §8.1: fills the shared quarter-square table
+;                       at LIB_SHARED_SQTAB_BASE (1 KB of RAM outside every
+;                       segment; standalone default $9000 — override with
+;                       `-D LIB_SHARED_SQTAB_BASE=0x<addr>`, `$`-free). In a
+;                       build with -D SHARED_SQTAB_INIT this library does NOT
+;                       provide it; the link's designated owner does, and the
+;                       consumer calls that one.
+;   mlkem_arith_init    builds the two 512 B reduction tables in
+;                       LIB_MLKEM_BSS. Reads nothing else. Every routine above
+;                       reads them, so a missing call is a wrong answer, not
+;                       a crash.
+; Mirror the library's §6.7 guard in your own link:
+;   .import __<AREA>_LAST__
+;   .assert __<AREA>_LAST__ <= LIB_SHARED_SQTAB_BASE, lderror, "image overruns sqtab"
+.import mlkem_poly_ntt, mlkem_poly_intt, mlkem_poly_basemul
+.import mlkem_poly_add, mlkem_poly_sub, mlkem_poly_reduce
+.import mlkem_arith_init
+
 .endif

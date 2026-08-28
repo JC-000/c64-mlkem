@@ -25,6 +25,13 @@ CONSTANTS_S_INCLUDED = 1
 ; bake-everywhere model and make every archive TU a definer — the exact thing
 ; §6.2 says to avoid for a new library.
 
+; --- c64-lib-contract §8.1: shared quarter-square table placement ---------
+; LIB_SHARED_SQTAB_BASE / sqtab_lo / sqtab_hi as source-level equates, so every
+; TU that reads the table derives the same address at assemble time (the
+; multiply self-modifies the page byte of its `abs,x` loads, which ld65 cannot
+; relocate). The default and the two §8.1 asserts live in that file ONLY.
+.include "sqtab_base.inc"
+
 ; --- KERNAL ---------------------------------------------------------------
 chrout          = $FFD2         ; print character in A
 

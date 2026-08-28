@@ -39,6 +39,11 @@ MLKEM_MONT_N_INV =   512        ; 128^-1 * R mod q
 ;
 ; Split-plane, to match the polynomial layout: 128 low bytes, then 128
 ; high bytes (0..12). 256 B total, at the §8.0 precalc-table floor.
+;
+; Emission gates (see tools/gen_tables.py): MLKEM_TABLES_NO_DATA suppresses
+; every table (equates only); MLKEM_TABLES_GAMMAS / MLKEM_TABLES_MONT opt
+; the gamma / Montgomery planes in. Default: zetas only.
+.ifndef MLKEM_TABLES_NO_DATA
 mlkem_zetas_lo:   ; zetas[i] & $FF
         .byte $01, $C1, $14, $D9, $52, $76, $69, $50, $26, $7F, $C1, $1D, $E2, $BC, $39, $D2   ; [  0.. 15]
         .byte $28, $8F, $3B, $C4, $E6, $38, $C0, $35, $92, $2E, $17, $42, $59, $3F, $B6, $35   ; [ 16.. 31]
@@ -64,6 +69,7 @@ mlkem_zetas_hi:   ; zetas[i] >> 8
 ; Identity (asserted by the generator): gamma[2i] = zetas[64+i] and
 ; gamma[2i+1] = q - zetas[64+i], so an implementation may index the zeta
 ; table's top half and negate the odd pairs instead of storing these.
+.ifdef MLKEM_TABLES_GAMMAS
 mlkem_gammas_lo:   ; gamma[i] & $FF
         .byte $11, $F0, $C9, $38, $47, $BA, $59, $A8, $65, $9C, $D3, $2E, $F0, $11, $4C, $B5   ; [  0.. 15]
         .byte $81, $80, $66, $9B, $D1, $30, $E9, $18, $F4, $0D, $6C, $95, $C7, $3A, $EA, $17   ; [ 16.. 31]
@@ -82,9 +88,11 @@ mlkem_gammas_hi:   ; gamma[i] >> 8
         .byte $04, $08, $01, $0B, $0A, $02, $02, $0A, $08, $04, $02, $0A, $09, $03, $0A, $02   ; [ 80.. 95]
         .byte $0A, $02, $04, $08, $01, $0B, $04, $08, $04, $08, $08, $04, $0A, $02, $03, $09   ; [ 96..111]
         .byte $06, $06, $04, $08, $07, $05, $04, $08, $08, $04, $0B, $01, $03, $09, $08, $04   ; [112..127]
+.endif
 
 ; --- Montgomery-domain copies (zeta * 2^16 mod q), if a Montgomery multiply
 ; is chosen; unused otherwise. Same order and split as above.
+.ifdef MLKEM_TABLES_MONT
 mlkem_zetas_mont_lo:   ; (zetas[i] * 2^16 mod q) & $FF
         .byte $ED, $0B, $9A, $14, $D5, $8E, $1F, $CA, $56, $6E, $29, $B6, $C2, $4F, $3F, $BC   ; [  0.. 15]
         .byte $3D, $D4, $08, $7F, $C4, $B2, $BF, $7F, $58, $F9, $DC, $60, $FB, $9B, $34, $DE   ; [ 16.. 31]
@@ -103,3 +111,5 @@ mlkem_zetas_mont_hi:   ; (zetas[i] * 2^16 mod q) >> 8
         .byte $0C, $03, $04, $0C, $09, $05, $0A, $04, $06, $02, $09, $01, $01, $01, $0C, $0C   ; [ 80.. 95]
         .byte $03, $04, $02, $02, $05, $07, $07, $01, $08, $0C, $04, $07, $09, $00, $08, $06   ; [ 96..111]
         .byte $08, $07, $08, $03, $07, $09, $09, $01, $0C, $0B, $03, $03, $03, $07, $05, $06   ; [112..127]
+.endif
+.endif ; MLKEM_TABLES_NO_DATA

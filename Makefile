@@ -118,12 +118,16 @@ TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 #     bench.s      measurement harness, not library surface
 #     zp_config.s  §6.2 consumer-assembled ZP model: no archive TU defines a
 #                  slot; the consumer assembles src/zp_config.s themselves
-LIB_SRCS = lib_version lib_manifest state keccak sponge
+#     sqtab.s      §8.1 mul_tables_init (owner build) / import (deferring)
+#     ntt.s        P2 WP1: mod-3329 arithmetic, NTT/INTT/basemul, R tables
+LIB_SRCS = lib_version lib_manifest state keccak sponge sqtab ntt
 
-# The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge).
-# Identical to LIB_SRCS today because FIPS 202 is all P1 ships; they diverge in
-# P2, when `lib` grows the ML-KEM layer and this target stays FIPS-202-only.
-KECCAK_SRCS = $(LIB_SRCS)
+# The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge)
+# only. Diverged from LIB_SRCS at P2 WP1. NOTE (WP4): mlkem_lib_manifest.o now
+# carries the §8.0 sqtab masks, which this member set does not consume; §6.4
+# wants a manifest configuration per member set — see
+# docs/contract-p2-alignment.md §2.5.
+KECCAK_SRCS = lib_version lib_manifest state keccak sponge
 
 # Driver-side sources: standalone PRG only.
 DRIVER_SRCS = main bench zp_config
@@ -169,6 +173,8 @@ $(TOBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(TOBJ_DIR)
 	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $<
 
 $(OBJ_DIR)/mlkem_keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
+$(OBJ_DIR)/mlkem_ntt.o $(TOBJ_DIR)/ntt.o: $(SRC_DIR)/mlkem_tables.inc $(SRC_DIR)/sqtab_base.inc
+$(OBJ_DIR)/mlkem_sqtab.o $(TOBJ_DIR)/sqtab.o $(TOBJ_DIR)/main.o: $(SRC_DIR)/sqtab_base.inc
 
 # §8.4: the canonical macro source is .include'd from the manifest TU only.
 $(OBJ_DIR)/mlkem_lib_manifest.o $(TOBJ_DIR)/lib_manifest.o: $(SRC_DIR)/precalc_table.inc

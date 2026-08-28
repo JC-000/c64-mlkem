@@ -79,6 +79,18 @@ def emit_mlkem(o):
             o("        .byte " + ", ".join(f"${((v >> shift) & 0xFF):02X}" for v in vals[row:row + 16])
               + f"   ; [{row:3d}..{row + 15:3d}]\n")
 
+    # Data-emission gates. ld65 links a TU's whole segment fragment, so a
+    # table this file emits into a TU's RODATA ships whether or not anything
+    # reads it. Every table is therefore gated: a TU that only wants the
+    # equates defines MLKEM_TABLES_NO_DATA before including; the gamma and
+    # Montgomery planes are opt-in (MLKEM_TABLES_GAMMAS / MLKEM_TABLES_MONT)
+    # because src/ntt.s derives gammas from zetas[64..127] and uses no
+    # Montgomery domain — 512 B of rodata that would otherwise sit in the
+    # 7,680 B window unread.
+    o(";\n; Emission gates (see tools/gen_tables.py): MLKEM_TABLES_NO_DATA suppresses\n")
+    o("; every table (equates only); MLKEM_TABLES_GAMMAS / MLKEM_TABLES_MONT opt\n")
+    o("; the gamma / Montgomery planes in. Default: zetas only.\n")
+    o(".ifndef MLKEM_TABLES_NO_DATA\n")
     plane("mlkem_zetas_lo", M.ZETAS, 0, "zetas[i] & $FF")
     plane("mlkem_zetas_hi", M.ZETAS, 8, "zetas[i] >> 8")
 
@@ -88,14 +100,19 @@ def emit_mlkem(o):
     o("; Identity (asserted by the generator): gamma[2i] = zetas[64+i] and\n")
     o("; gamma[2i+1] = q - zetas[64+i], so an implementation may index the zeta\n")
     o("; table's top half and negate the odd pairs instead of storing these.\n")
+    o(".ifdef MLKEM_TABLES_GAMMAS\n")
     plane("mlkem_gammas_lo", M.GAMMAS, 0, "gamma[i] & $FF")
     plane("mlkem_gammas_hi", M.GAMMAS, 8, "gamma[i] >> 8")
+    o(".endif\n")
 
     o("\n; --- Montgomery-domain copies (zeta * 2^16 mod q), if a Montgomery multiply\n")
     o("; is chosen; unused otherwise. Same order and split as above.\n")
+    o(".ifdef MLKEM_TABLES_MONT\n")
     mz = [mont(z) for z in M.ZETAS]
     plane("mlkem_zetas_mont_lo", mz, 0, "(zetas[i] * 2^16 mod q) & $FF")
     plane("mlkem_zetas_mont_hi", mz, 8, "(zetas[i] * 2^16 mod q) >> 8")
+    o(".endif\n")
+    o(".endif ; MLKEM_TABLES_NO_DATA\n")
 
 
 if "--mlkem" in sys.argv:

@@ -19,10 +19,19 @@
 ; Driver code IS the consumer here.
 ; =============================================================================
 
-.include "constants.s"
+.include "constants.s"          ; brings sqtab_base.inc (same default as the library TUs)
 
 .import keccak_state
 .import bench_cycles_start, bench_cycles_stop, bench_cycles, bench_spin_1000
+.import mul_tables_init, mlkem_arith_init
+
+; --- c64-lib-contract §6.7 image guard ------------------------------------
+; The §8.1 sqtab is 1 KB of RAM at LIB_SHARED_SQTAB_BASE that ld65 knows
+; nothing about. This TU ships in no archive, so it is the place the library
+; guards its own image against growing into that window. Hard import, never
+; weak; lderror because __MAIN_LAST__ is a link-time symbol.
+.import __MAIN_LAST__
+.assert __MAIN_LAST__ <= LIB_SHARED_SQTAB_BASE, lderror, "image overruns the sqtab window (LIB_SHARED_SQTAB_BASE)"
 
 .export start
 
@@ -50,6 +59,11 @@ start:
         ; honest check that every TU assembles, links and lands somewhere.
         lda     #<keccak_state
         lda     #<bench_cycles
+
+        ; Boot-time table init is the CONSUMER's job (contract §8.0/§8.1);
+        ; this driver is the consumer here. Both are idempotent.
+        jsr     mul_tables_init     ; §8.1 sqtab at LIB_SHARED_SQTAB_BASE
+        jsr     mlkem_arith_init    ; the mod-q reduction tables (BSS)
 
         ldx     #$00
 :       lda     banner,x

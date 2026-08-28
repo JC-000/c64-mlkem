@@ -61,6 +61,15 @@ ZP_CONFIG_S_INCLUDED = 1
     mlkem_zp_tmp = $36
 .endif
 
+; P2: the mod-3329 multiply's operand/product scratch, 8 bytes (src/ntt.s:
+; a, b, p0..p2, px). Zero page because the butterfly touches these ~60 times
+; per call and abs addressing would cost ~13% of the NTT. $38-$3F is clear of
+; every sibling default (chacha $02-$03/$40-$7F, nist-curves $02-$03/$22-$2D/
+; $FB-$FE, x25519 $14-$2F/$40-$7F).
+.ifndef mlkem_zp_mul
+    mlkem_zp_mul = $38
+.endif
+
 ; When zp_config.s is transitively .include'd (e.g. via constants.s), the
 ; including TU must NOT re-emit these .exportzp directives — ld65 errors if one
 ; symbol is exported from two objects. Includers set ZP_CONFIG_NO_EXPORTS = 1
@@ -71,6 +80,7 @@ ZP_CONFIG_S_INCLUDED = 1
 .exportzp mlkem_zp_dst
 .exportzp mlkem_zp_len
 .exportzp mlkem_zp_tmp
+.exportzp mlkem_zp_mul
 .endif
 
 .endif

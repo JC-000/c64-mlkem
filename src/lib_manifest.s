@@ -56,9 +56,10 @@ LIB_MLKEM_COLD_BYTES = 0
 ;   $32-$33  mlkem_zp_dst   2 B
 ;   $34-$35  mlkem_zp_len   2 B
 ;   $36-$37  mlkem_zp_tmp   2 B
+;   $38-$3F  mlkem_zp_mul   8 B   (P2: multiply operand/product scratch)
 ;   ----------------------------
-;                           8 B
-LIB_MLKEM_ZP_USAGE_BYTES = 8
+;                          16 B
+LIB_MLKEM_ZP_USAGE_BYTES = 16
 
 ; Bitmask of REU banks claimed (§3). P1 uses no REU at all — the Keccak state
 ; is 200 bytes of main memory and there is nothing to stage. Do not pass -reu
@@ -67,19 +68,45 @@ LIB_MLKEM_REU_BANKS_USED = 0
 
 ; --- §8 shared primitives -----------------------------------------------
 ;
-; Keccak is XOR/AND/NOT/rotate only — it contains no multiply at all, so every
-; §8.x shared primitive is irrelevant here. Both masks are 0: this library
-; neither owns nor consumes any of them.
+; P2 (WP1): the NTT multiply reads the §8.1 quarter-square TABLE `sqtab`
+; (src/ntt.s, via src/sqtab_base.inc). It takes neither §8.2 reu_mul (no REU
+; in P2) nor the §8.3 ct_mul_8x8 BODY (private mlkem_-prefixed multiply; see
+; docs/contract-p2-alignment.md §3), so bits $0002 / $0004 stay clear in both
+; masks and no §8.3 provider obligation attaches.
 ;
-; This changes in P2, where the NTT's modular multiplies make all three
-; candidates — and they are three DIFFERENT obligations, not one:
-;   §8.1  sqtab       shared quarter-square TABLE
-;   §8.2  reu_mul     shared REU multiplication TABLE
-;   §8.3  ct_mul_8x8  shared constant-time multiply BODY (not a table)
-; Whichever P2 touches, LIB_MLKEM_SHARED_CONSUMES gains the corresponding bits
-; and §8.0's ownership-state machinery becomes live for this repo.
-LIB_MLKEM_SHARED_PRIMITIVES = 0
-LIB_MLKEM_SHARED_CONSUMES   = 0
+; Bit constants: copied verbatim from §8.0, .ifndef-guarded, NEVER exported
+; (an exporter reintroduces the #43 duplicate-identifier collision in every
+; composed link, and only a composed link ever sees it).
+.ifndef LIB_SHARED_PRIMITIVES_SQTAB
+  LIB_SHARED_PRIMITIVES_SQTAB      = $0001
+.endif
+.ifndef LIB_SHARED_PRIMITIVES_REU_MUL
+  LIB_SHARED_PRIMITIVES_REU_MUL    = $0002
+.endif
+.ifndef LIB_SHARED_PRIMITIVES_CT_MUL_8X8
+  LIB_SHARED_PRIMITIVES_CT_MUL_8X8 = $0004
+.endif
+
+; Ownership mask — §8.0's required CONDITIONAL form: the bit means "owned in
+; this build configuration" and the deferral switch drops it, so two libraries
+; sharing the table end up with disjoint masks and the consumer's
+; double-ownership assert is satisfiable. SHARED_SQTAB_INIT reaches this TU via
+; CONTRACT_DEFINES (every archive member) and is in the §6.3 invalidation
+; signature, which is what §6.4 needs for the manifest to describe the archive.
+.ifdef SHARED_SQTAB_INIT
+  _OWN_SQTAB = 0
+.else
+  _OWN_SQTAB = LIB_SHARED_PRIMITIVES_SQTAB
+.endif
+LIB_MLKEM_SHARED_PRIMITIVES = _OWN_SQTAB
+
+; Consumes mask — set iff this build READS the primitive at all. A deferral
+; switch does not clear it; only profile-gated non-consumption would, and this
+; library has one member set and no profile axis, so it is unconditional.
+; States: standalone $0001/$0001 (owner); c64-https composed, built with
+; -D SHARED_SQTAB_INIT, $0000/$0001 (deferring consumer).
+LIB_MLKEM_SHARED_CONSUMES = LIB_SHARED_PRIMITIVES_SQTAB
+.assert (LIB_MLKEM_SHARED_PRIMITIVES & ~LIB_MLKEM_SHARED_CONSUMES) = 0, error, "a build cannot own a primitive it does not consume"
 
 .export LIB_MLKEM_RESIDENT_BYTES:    abs
 .export LIB_MLKEM_COLD_BYTES:        abs
@@ -116,18 +143,25 @@ LIB_NO_BARE_EXPORTS = 1
 .include "precalc_table.inc"
 
 ; P1 (v0.4.x): ZERO invocations — no table clears the §8.4 floor (largest is
-; the 192 B round-constant sequence). docs/precalc-tables.md agrees, in both
-; directions, as the intake rule requires.
+; the 192 B round-constant sequence).
 ;
-; P2 (pending — see docs/precalc-tables.md "P2 (pending)" and
-; docs/contract-p2-alignment.md §4 for the exact rows). Planned, to be
-; uncommented by the WP that lands each table, in lock-step with the doc row:
+; P2 WP1 rows — each landed in the same commit as its table and its
+; docs/precalc-tables.md row (the intake rule blocks any asymmetry):
 ;
-;   LIB_PRECALC_TABLE "sqtab",      1024, PRECALC_REGION_RAM,    PRECALC_SHARED_YES, "MLKEM"
-;   LIB_PRECALC_TABLE "mlkem_zetas", 256, PRECALC_REGION_RODATA, PRECALC_SHARED_NO,  "MLKEM"
+;   sqtab        §8.1 shared quarter-square table, 1,024 B of equate-placed
+;                RAM at LIB_SHARED_SQTAB_BASE. "sqtab" is §8.1-normative and
+;                MUST NOT be prefixed (the cross-adopter audit greps
+;                _PRECALC_sqtab_SIZE); the library prefix is the fifth
+;                argument only. Emitted whenever the consumes bit is set — it
+;                is consumption surface in a deferring build too, so it is
+;                NOT gated on SHARED_SQTAB_INIT.
+;   mlkem_zetas  the 128 NTT twiddles in traversal order, 256 B of RODATA
+;                (lo/hi planes), hot-loop-read: exactly at the floor.
 ;
-; "sqtab" is §8.1-normative and MUST NOT be prefixed; the library prefix goes
-; in the fifth argument only. The sqtab row is emitted only when
-; LIB_MLKEM_SHARED_CONSUMES carries LIB_SHARED_PRIMITIVES_SQTAB (it is the
-; §8.0 "consumption surface" of a deferring build too, so it is NOT gated on
-; SHARED_SQTAB_INIT).
+; Not enumerated, below the 256 B floor: mlkem_sqd (27 B |d| quarter-squares).
+; The R1/R2 reduction tables (1 KB of BSS, built at run time by
+; mlkem_arith_init) are page-aligned and secret-indexed but are not
+; PRECALCULATED data — they are computed on the target, so they are not §8.4
+; tables; they are recorded in docs/precalc-tables.md for completeness.
+LIB_PRECALC_TABLE "sqtab",      1024, PRECALC_REGION_RAM,    PRECALC_SHARED_YES, "MLKEM"
+LIB_PRECALC_TABLE "mlkem_zetas", 256, PRECALC_REGION_RODATA, PRECALC_SHARED_NO,  "MLKEM"
