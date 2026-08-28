@@ -77,4 +77,34 @@ MLKEM_INC_INCLUDED = 1
 .import mlkem_shake128_init, mlkem_shake256_init
 .import mlkem_absorb, mlkem_squeeze, mlkem_sponge_len
 
+; --- P2 / WP2: samplers and codecs (src/sample.s, src/codec.s) -------------
+;
+; POLYNOMIAL LAYOUT: split-plane, 512 bytes, page-aligned — 256 low bytes then
+; 256 high bytes; coefficient i is byte i of each plane (mirrored by
+; tools/mlkem_ref.py poly_to_c64 / poly_from_c64). Every routine below reads
+; its polynomial / byte string at (mlkem_zp_src) and writes at (mlkem_zp_dst);
+; both pointers are set by the caller before EVERY call and are not preserved.
+; All of them clobber A/X/Y, mlkem_zp_tmp, mlkem_zp_len and mlkem_sponge_len.
+; A routine that writes a polynomial writes all 512 bytes and nothing past.
+;
+; mlkem_sample_ntt        FIPS 203 Alg. 7 over the live SHAKE128 stream: the
+;                         caller has run mlkem_shake128_init and absorbed
+;                         rho || j || i; output A[i][j] (NTT order, [0, q)) at
+;                         (mlkem_zp_dst). Squeezes 3-4 rate blocks itself.
+; mlkem_sample_cbd2       Alg. 8, eta = 2: 128 PRF bytes -> polynomial in
+;                         [0, q) (negative v stored as q + v). Constant time.
+; mlkem_byte_encode_12    Alg. 5, d = 12: polynomial -> 384 bytes. Constant time.
+; mlkem_byte_decode_12    Alg. 6, d = 12: 384 bytes -> polynomial, RAW unpack:
+;                         a field >= q is written unreduced (3329..4095). The
+;                         < q check on an encapsulation key is the caller's
+;                         (FIPS 203 §7.2) and must be an explicit per-
+;                         coefficient compare, not re-encode-and-compare.
+; mlkem_compress_{1,4,10} eq. 4.7, round-half-up: [0, q) -> d-bit values,
+;                         unpacked. Constant time (branch-free division by q).
+; mlkem_decompress_{1,4,10} eq. 4.8: d-bit values -> [0, q). Constant time.
+.import mlkem_sample_ntt, mlkem_sample_cbd2
+.import mlkem_byte_encode_12, mlkem_byte_decode_12
+.import mlkem_compress_1, mlkem_compress_4, mlkem_compress_10
+.import mlkem_decompress_1, mlkem_decompress_4, mlkem_decompress_10
+
 .endif

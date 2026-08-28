@@ -118,12 +118,17 @@ TEST_DEFINES = -D MLKEM_TEST_HOOKS=1
 #     bench.s      measurement harness, not library surface
 #     zp_config.s  §6.2 consumer-assembled ZP model: no archive TU defines a
 #                  slot; the consumer assembles src/zp_config.s themselves
-LIB_SRCS = lib_version lib_manifest state keccak sponge
+LIB_SRCS = lib_version lib_manifest state keccak sponge $(WP2_SRCS)
+
+# P2 / WP2: samplers (SampleNTT, CBD) and codecs (ByteEncode/Decode12,
+# Compress/Decompress). Listed once, here, so the archive and the test PRG
+# cannot disagree about them.
+WP2_SRCS = sample codec
 
 # The `lib-keccak` member set: the FIPS 202 surface (permutation + sponge).
 # Identical to LIB_SRCS today because FIPS 202 is all P1 ships; they diverge in
 # P2, when `lib` grows the ML-KEM layer and this target stays FIPS-202-only.
-KECCAK_SRCS = $(LIB_SRCS)
+KECCAK_SRCS = lib_version lib_manifest state keccak sponge
 
 # Driver-side sources: standalone PRG only.
 DRIVER_SRCS = main bench zp_config
@@ -145,7 +150,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
-        bench tables lib lib-keccak \
+        bench bench-sampler tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix vectors help
 
 all: $(PRG)
@@ -314,6 +319,11 @@ test: test-ref test-vice test-sha3 check-archives check-staleness check-prefix
 bench: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_keccak.py
 
+# WP2 samplers/codecs: cycles per routine with the same calibrated instrument,
+# plus a constant-time check (four inputs each must measure identically).
+bench-sampler: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_sampler.py
+
 # Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
 # constants from the validated models.
 tables:
@@ -339,6 +349,7 @@ help:
 	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
 	@echo "make test-mlkem   WP3 K-PKE/ML-KEM KATs + hazmat + CT decaps in VICE (add -full)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
+	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects in archives (§6.1)"
