@@ -1,0 +1,11 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -92,7 +92,7 @@
+ ;   +0 bit shifts, +1 byte select (1 -> drop the low byte first),
+ ;   +2 / +3 rounding constant 2^(d-1), lo / hi
+ dc_params:
+-        .byte 1, 0, $01, $00                ; d = 1
++        .byte 1, 0, $00, $00                ; d = 1  MUTANT: floor
+         .byte 4, 0, $08, $00                ; d = 4
+         .byte 2, 1, $00, $02                ; d = 10
+ 

@@ -42,21 +42,42 @@ The `bpl` mutant and the missing-final-reduce mutant are the two that a naive
 "compare modulo q at the end" suite lets through; they are why `test_ntt.py`
 compares **canonical values** and includes **all-0xFFFF / all-(q-1)** inputs.
 
-## Required WP2 mutants (samplers and codecs)
+## Required WP2 mutants (samplers and codecs) — gate run, all 12 KILLED
 
 Same manifest, `"test": "make test-sampler"`. `expect` is a substring the
 failure output must contain, so the kill is *localised*, not incidental.
+Patches are written against `src/sample.s` / `src/codec.s` as merged in
+54eeb17. Two faults from the red-phase list could not exist in that
+implementation's structure and were replaced by the nearest fault of the same
+class (marked *replaced*); four adversarial extras came from reading the
+green source.
 
-| name | fault | kill / expected failure |
+| name | fault | localising failure line |
 |---|---|---|
-| `wp2-cbd-short` | `mlkem_sample_cbd2`: loop consumes 127 of the 128 PRF bytes (last two coefficients never written) | `tools/test_sampler.py --only cbd` → `mlkem_sample_cbd2 [all-0xFF]: index 254` |
-| `wp2-compress-floor` | `mlkem_compress_10`: drop the +q/2 (round-half-up) term so compress computes floor(2^d*x/q) | `tools/test_sampler.py --only compress` → `mlkem_compress_10 [boundaries 0..]` |
-| `wp2-compress-floor-4` | `mlkem_compress_4`: same as wp2-compress-floor for d=4 (a separate routine or table row) | `tools/test_sampler.py --only compress` → `mlkem_compress_4 [boundaries 0..]` |
-| `wp2-decompress-shift` | `mlkem_decompress_10`: rounding constant one bit short: add 2^(d-2) instead of 2^(d-1) before the >> d | `tools/test_sampler.py --only decompress` → `mlkem_decompress_10 [exhaustive` |
-| `wp2-decompress-shift-1` | `mlkem_decompress_1`: decompress_1 returns floor(q/2)=1664 for y=1 instead of round(q/2)=1665 | `tools/test_sampler.py --only decompress` → `mlkem_decompress_1 [exhaustive 0..]: index 1: got 1664 want 1665` |
-| `wp2-sample-ntt-accept-q` | `mlkem_sample_ntt`: rejection test uses d <= q instead of d < q (a candidate equal to 3329 is accepted) | `tools/test_sampler.py --only sample_ntt` → `stream carries a d == q` |
-| `wp2-sample-ntt-d2-after-full` | `mlkem_sample_ntt`: drop the j < 256 guard on d2 so a valid d2 is stored after the 256th coefficient | `tools/test_sampler.py --only sample_ntt` → `wrote past the 512-byte output buffer` |
-| `wp2-encode-nibble-swap` | `mlkem_byte_encode_12`: middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4 | `tools/test_sampler.py --only encode` → `mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1` |
+| `wp2-cbd-short` | `mlkem_sample_cbd2`: `cmp #CBD_BYTES-1`, 127 of 128 PRF bytes consumed | `mlkem_sample_cbd2 [all-0xFF]: index 254` |
+| `wp2-compress-floor` | `compress_common`: the +1664 round-half-up term dropped (floor for every d) | `mlkem_compress_10 [boundaries 0..]` (d=1 and d=4 fail too) |
+| `wp2-compress-floor-4` | *replaced*: there is one shared body with per-d parameter rows, so the d=4 row runs one correction short (K=1 for 2) — floors some d=4 quotients only | `mlkem_compress_4 [boundaries 0..]: index 8: got 3 want 4` |
+| `wp2-decompress-shift` | `dc_params` d=10 rounding constant $0200 -> $0100 (2^(d-2)) | `mlkem_decompress_10 [exhaustive 0..]: index 2: got 6 want 7` |
+| `wp2-decompress-shift-1` | `dc_params` d=1 rounding constant 1 -> 0 | `mlkem_decompress_1 [exhaustive 0..]: index 1: got 1664 want 1665` |
+| `wp2-sample-ntt-accept-q` | `try_accept`: hi==13 accepts lo<=1, i.e. d<=q | `mlkem_sample_ntt [stream carries a d == q ...]: index 146: got 3329 want 27` |
+| `wp2-sample-ntt-d2-after-full` | *replaced*: the j==256 stop between d1 and d2 dropped. Y is 8-bit, so the extra store wraps to index 0 (never past the buffer) and sampling runs on | `mlkem_sample_ntt [256th coeff is d1, d2 < q must be dropped ...]: index 0` |
+| `wp2-encode-nibble-swap` | middle byte packed as `(b.lo & $0F) \| a.hi << 4` | `mlkem_byte_encode_12 [nibble-asymmetric 0x3A5 / 0x5AC]: byte index 1` |
+| `wp2-cbd-nibble-order` | *extra*: high nibble taken for coefficient 2k, low for 2k+1 | `mlkem_sample_cbd2 [0x03 (x=2,y=0 -> +2 in even coeffs)]: index 0: got 0 want 2` |
+| `wp2-sample-ntt-block-short` | *extra*: block consumed as 55 triples (`cpx #SHAKE128_RATE-3`), the last triple of every 168 B block skipped | `mlkem_sample_ntt [needs 4 blocks (510 B > 504) ...]: index 83` |
+| `wp2-decode-reduces-mod-q` | *extra*: Alg. 6 literal `mod q` on a decoded field — violates the raw pass-through pin WP3's explicit `< q` ek check relies on | `mlkem_byte_decode_12 [all fields 0xFFF (>= q, raw)]: index 0: got 766 want 4095` |
+| `wp2-compress-stale-hi` | *extra*: high plane of the compressed poly never written (same-size `nop` replacement) | `mlkem_compress_1 [boundaries 0..]: index 0: got 60928 want 0` |
+
+Two layout facts bit while writing these and will bite again: the
+secret-indexed tables carry page-straddle `.assert`s, so a patch that
+changes code size by even 8 bytes can move `LIB_MLKEM_RODATA` onto a page
+edge and fail the LINK (the slack in the green tree is +36 / -8 bytes) —
+prefer same-size replacements (`nop`), and widen a `bne` loop to
+`beq :+ / jmp` when a mutant's extra bytes push it out of range.
+
+One red-phase defect surfaced: the original `nibble-asymmetric 0x0A5 / 0x5A0`
+encode vector was *symmetric under the nibble swap* (both swapped nibbles
+were 0) and could not localise `wp2-encode-nibble-swap`; the mutant was
+still killed by `all q-1`, but the vector is now `0x3A5 / 0x5AC`.
 
 ## Writing a patch
 

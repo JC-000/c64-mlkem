@@ -1,0 +1,11 @@
+--- a/src/codec.s
++++ b/src/codec.s
+@@ -85,7 +85,7 @@
+ ;   +5 / +6 output mask (2^d - 1), lo / hi
+ cp_params:
+         .byte 1, 0,  0,  0, 2, $01, $00     ; d = 1
+-        .byte 4, 0,  0, 14, 2, $0F, $00     ; d = 4
++        .byte 4, 0,  0, 14, 1, $0F, $00     ; d = 4  MUTANT: K = 1
+         .byte 2, 1, 63, 28, 3, $FF, $03     ; d = 10  (<< 8 then << 2)
+ 
+ ; Decompress parameter blocks, 4 bytes each:

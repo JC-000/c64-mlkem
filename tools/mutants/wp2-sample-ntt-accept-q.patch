@@ -1,0 +1,12 @@
+--- a/src/sample.s
++++ b/src/sample.s
+@@ -160,7 +160,8 @@
+         bcc accept                  ; hi < 13
+         bne reject                  ; hi > 13
+         lda sn_lo
+-        bne reject                  ; hi == 13, lo != 0: d >= q
++        cmp #2
++        bcs reject                  ; MUTANT: lo <= 1 accepted, i.e. d <= q
+         lda #MLKEM_Q_HI
+ accept:
+         sta (mlkem_zp_tmp),y        ; hi plane

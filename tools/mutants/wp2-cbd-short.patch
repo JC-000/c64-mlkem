@@ -1,0 +1,11 @@
+--- a/src/sample.s
++++ b/src/sample.s
+@@ -216,7 +216,7 @@
+ 
+         inc cbd_k
+         lda cbd_k
+-        cmp #CBD_BYTES              ; cmp, not bpl: 128 has bit 7 set
++        cmp #CBD_BYTES-1            ; MUTANT: one byte short
+         bne loop
+         rts
+ .endproc
