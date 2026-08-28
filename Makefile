@@ -140,7 +140,8 @@ LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS))
 ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
-.PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full bench tables lib lib-keccak \
+.PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-sampler test-sampler-full \
+        bench tables lib lib-keccak \
         check-manifest check-archives check-staleness vectors help
 
 all: $(PRG)
@@ -246,6 +247,16 @@ test-sha3: $(PRG)
 test-sha3-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sha3.py --full
 
+# WP2 samplers and codecs: SampleNTT over the live SHAKE128 stream, CBD,
+# ByteEncode/Decode12, Compress/Decompress against tools/mlkem_ref.py.
+# RED until WP2 lands. --full sweeps every compress input and every
+# encode/decode position.
+test-sampler: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py
+
+test-sampler-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_sampler.py --full
+
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
 test: test-ref test-vice test-sha3 check-archives check-staleness
@@ -274,6 +285,7 @@ help:
 	@echo "make test-ref     oracle self-test (Python only, no VICE)"
 	@echo "make test-vice    per-step differential trace under VICE"
 	@echo "make test-sha3    FIPS 202 KATs (add -full for all 820 vectors)"
+	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make tables       regenerate src/keccak_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"

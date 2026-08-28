@@ -1,0 +1,74 @@
+# WP2 mutants — samplers and codecs. Written red, before the implementation;
+# `patch` is filled at gate time against the green source. See README.md.
+
+[[mutant]]
+id      = "wp2-cbd-short"
+routine = "mlkem_sample_cbd2"
+fault   = "loop consumes 127 of the 128 PRF bytes (last two coefficients never written)"
+class   = "off-by-one"
+kill    = "tools/test_sampler.py --only cbd"
+expect  = "mlkem_sample_cbd2 [all-0xFF]: index 254"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-compress-floor"
+routine = "mlkem_compress_10"
+fault   = "drop the +q/2 (round-half-up) term so compress computes floor(2^d*x/q)"
+class   = "rounding"
+kill    = "tools/test_sampler.py --only compress"
+expect  = "mlkem_compress_10 [boundaries 0..]"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-compress-floor-4"
+routine = "mlkem_compress_4"
+fault   = "same as wp2-compress-floor for d=4 (a separate routine or table row)"
+class   = "rounding"
+kill    = "tools/test_sampler.py --only compress"
+expect  = "mlkem_compress_4 [boundaries 0..]"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-decompress-shift"
+routine = "mlkem_decompress_10"
+fault   = "rounding constant one bit short: add 2^(d-2) instead of 2^(d-1) before the >> d"
+class   = "off-by-one"
+kill    = "tools/test_sampler.py --only decompress"
+expect  = "mlkem_decompress_10 [exhaustive"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-decompress-shift-1"
+routine = "mlkem_decompress_1"
+fault   = "decompress_1 returns floor(q/2)=1664 for y=1 instead of round(q/2)=1665"
+class   = "rounding"
+kill    = "tools/test_sampler.py --only decompress"
+expect  = "mlkem_decompress_1 [exhaustive 0..]: index 1: got 1664 want 1665"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-sample-ntt-accept-q"
+routine = "mlkem_sample_ntt"
+fault   = "rejection test uses d <= q instead of d < q (a candidate equal to 3329 is accepted)"
+class   = "bound"
+kill    = "tools/test_sampler.py --only sample_ntt"
+expect  = "stream carries a d == q"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-sample-ntt-d2-after-full"
+routine = "mlkem_sample_ntt"
+fault   = "drop the j < 256 guard on d2 so a valid d2 is stored after the 256th coefficient"
+class   = "bound"
+kill    = "tools/test_sampler.py --only sample_ntt"
+expect  = "wrote past the 512-byte output buffer"
+patch   = ""
+
+[[mutant]]
+id      = "wp2-encode-nibble-swap"
+routine = "mlkem_byte_encode_12"
+fault   = "middle byte packed as (a1 & 0xF) | (a0 >> 8) << 4 instead of (a0 >> 8) | (a1 & 0xF) << 4"
+class   = "order"
+kill    = "tools/test_sampler.py --only encode"
+expect  = "mlkem_byte_encode_12 [nibble-asymmetric 0x0A5 / 0x5A0]: byte index 1"
+patch   = ""
