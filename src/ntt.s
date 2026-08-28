@@ -55,7 +55,7 @@
 ; and the sqtab page select is a carry added into the patched address byte.
 ; Every table indexed by a secret-derived byte is page-aligned and read with
 ; a base low byte of 0 (sqtab: §8.1 assert; R1/R2/U: .align 256 + .assert
-; below; the 27-byte |d| table: .assert it does not straddle a page). The
+; below; the 27-byte |d| table lives in the R2 page tail). The
 ; per-block U build and the R-table init branch on public data only.
 ; tools/test_ntt.py's S5 check pins the cycle count equal across all-zero /
 ; all q-1 / random / impulse inputs.
@@ -108,11 +108,12 @@ fq_e_hi = mlkem_zp_len + 1
 ; t(|k - 13|) for k = 0..26: the quarter-square of a signed difference in
 ; [-13, 13], so the 14x14 product a1*b1 needs no sign handling. (a1 = a >> 8
 ; reaches 13: q - 1 = 3328 = $0D00.) Computed by the assembler, not typed.
-mlkem_sqd:
+; It is secret-indexed, so it is READ from fq_sqd inside a page-aligned BSS
+; page (mlkem_arith_init copies it there); this rodata image is the source.
+mlkem_sqd_src:
 .repeat 27, k
         .byte ((k - 13) * (k - 13)) / 4
 .endrepeat
-.assert (mlkem_sqd .mod 256) <= 256 - 27, lderror, "mlkem_sqd straddles a page: secret-indexed abs,y would leak timing"
 
 ; SMC site lists: the address of every plane-access instruction, grouped by
 ; which pointer/plane patches its high address byte. Maintained by hand next
@@ -162,6 +163,9 @@ mlkem_r2_hi:    .res 256
 ; tail of the R2 pages (R2 is only ever indexed up to 181).
 fq_u_lo = mlkem_r2_lo + 240
 fq_u_hi = mlkem_r2_hi + 240
+; The 27-byte |d| quarter-square table, likewise in the free tail (182..239).
+fq_sqd  = mlkem_r2_lo + 200
+.assert (fq_sqd .mod 256) <= 256 - 27, error, "fq_sqd straddles a page"
 
 nt_len:         .res 1          ; butterfly distance for the current layer
 nt_cnt:         .res 1          ; butterflies left in the block
@@ -296,7 +300,7 @@ mlkem_fq_mul:
         tay
         lda sqtab_lo,x
         sec
-        sbc mlkem_sqd,y         ; A = a1*b1
+        sbc fq_sqd,y            ; A = a1*b1
         clc
         adc fq_e_hi             ; + hi(q0) <= 12 + 169 = 181, no carry
         tax
@@ -982,6 +986,13 @@ mlkem_arith_init:
         jsr fq_csubq_p
         inx
         bne @r2
+        ; the |d| table into its page-aligned home
+        ldx #26
+@sqd:
+        lda mlkem_sqd_src,x
+        sta fq_sqd,x
+        dex
+        bpl @sqd                        ; 27 entries: bit 7 of 26 is clear
         rts
 
 ; =============================================================================
