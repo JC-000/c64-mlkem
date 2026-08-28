@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -849,7 +849,7 @@
+         ldx nt_savex
+         ; c0 = r00 + g (even pair) or r00 - g (odd pair)
+         txa
+-        and #2
++        and #0
+         bne bm_odd
+         lda bm_r00
+         clc

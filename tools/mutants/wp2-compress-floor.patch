@@ -1,6 +1,6 @@
 --- a/src/codec.s
 +++ b/src/codec.s
-@@ -260,10 +260,10 @@
+@@ -263,10 +263,10 @@
          bne :-
          lda cp_v+0
          clc

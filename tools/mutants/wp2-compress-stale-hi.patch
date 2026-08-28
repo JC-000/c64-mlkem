@@ -1,6 +1,6 @@
 --- a/src/codec.s
 +++ b/src/codec.s
-@@ -342,7 +342,8 @@
+@@ -345,7 +345,8 @@
          sta (mlkem_zp_dst),y
          lda cp_y+1
          and cp_mask_hi

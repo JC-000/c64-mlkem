@@ -15,34 +15,53 @@ implementation, never by the implementer — the point is to prove the suite
 notices, not that the code is right. A patch that no longer applies after a
 refactor is a stale gate and is reported as a failure, not skipped.
 
-## Status: patches PENDING
+## Required WP1 mutants (NTT and field arithmetic) — gate run, all 15 KILLED
 
-The WP1 implementation does not exist yet, so every `patch` in the manifest
-is `null` and `mutate.py` reports `missing-patch` for all of them (exit 1).
-Once the implementation lands the red author converts each row below into a
-real `.patch` against the actual source lines. The fault descriptions are
-precise enough that the conversion is mechanical.
+`"test": "make test-ntt"`. Patches are written against `src/ntt.s` /
+`src/mlkem_tables.inc` as merged in a9cc7f5. Two faults from the red-phase
+list cannot exist in that implementation's structure and were replaced by the
+nearest fault of the same class (marked *replaced*); five adversarial extras
+came from reading the green source. `expect` is a substring of the failure
+line, so every kill below is localised to the function, case and coefficient
+it names.
 
-## Required WP1 mutants (HANDOFF-P2 minimum set, plus adversarial extras)
-
-| name | fault (what the patch does) | which check must catch it |
+| name | fault (what the patch does) | localising failure line |
 |---|---|---|
-| `ntt-wrong-zeta` | In the generated zeta table (`src/mlkem_tables.inc` or wherever `make tables` puts it) replace the entry for index 77 with the value of index 76. One entry, in the middle of the last NTT layer. | `mlkem_poly_ntt` whole transform (random, all q-1: the four coefficients under zeta 77 differ); `mlkem_ntt_layer` trace names L=6; `mlkem_intt_layer` trace names L=0. |
-| `reduce-bound-off-by-one` | In `mlkem_poly_reduce` change the conditional-subtract threshold from `>= q` to `> q` (or bias the Barrett quotient by one), so an input of exactly `k*q` is returned as `q` rather than 0. | `mlkem_poly_reduce[k*q boundaries + extremes]` and `[all q]`, reported NON-CANONICAL (S1). |
-| `ntt-missing-final-reduce` | Delete the canonicalising pass (the `>= q` subtract) at the end of `mlkem_poly_ntt` / its last layer so outputs sit in `[q, 2q)` for some coefficients. | `mlkem_poly_ntt[all q-1]` / random cases flag NON-CANONICAL. Note `intt(ntt(f)) == f` alone would NOT catch this — hence S1. |
-| `butterfly-swapped-operand` | In the Cooley-Tukey butterfly swap the operands of the subtraction: `f[j+len] = t - f[j]` instead of `f[j] - t`. | `mlkem_ntt_layer` L=0 on `impulse[255]=q-1` and `all q-1`; every non-trivial whole-NTT case. |
-| `loop-bpl-256` | In a 256-iteration coefficient loop that counts X/Y down (reduce, add or sub), replace the `bne`/`beq :+ / jmp` exit with `bpl` — P1's real `keccak_clear` bug. The loop then stops at 127 (or after one iteration from 255). | `mlkem_poly_reduce[all 0xFFFF]`, `mlkem_poly_add[all q-1, all q-1]`: first diff at coeff 128 or 0. |
-| `basemul-accumulator-24bit` | In `mlkem_poly_basemul` skip the reduction of `a1*b1` before multiplying by gamma, and drop the carry into the fourth accumulator byte. | `mlkem_poly_basemul[all q-1 x all q-1 (S4 accumulator width)]`. |
-| `basemul-zeta-sign` | Drop the negation of gamma for the odd pair (`2i+1`), i.e. use `+zeta` for both halves. | `mlkem_poly_basemul` odd impulse pairs (`impulse[3] x impulse[3]`, `impulse[255] x impulse[255]`), random cases. |
-| `sub-no-wrap` | In `mlkem_poly_sub` remove the `+q` correction on borrow. | `mlkem_poly_sub[zero, all q-1 (S3 wrap)]` NON-CANONICAL. |
-| `intt-scale-wrong` | Change the 128^-1 constant 3303 to 3302 (if a Montgomery-folded constant is used, perturb that constant by one). | `mlkem_poly_intt` whole transform, `intt(ntt(f)) == f`; per-layer trace passes through L=5 and names L=6 / the full function. |
-| `ntt-data-dependent-branch` | Add `lda hi,x : ora lo,x : beq skip` around the butterfly multiply so a zero coefficient bypasses it. Functionally correct. | timing section: `mlkem_poly_ntt` constant-time check (S5) — `all-zero` measures fewer cycles than `random`. |
+| `ntt-wrong-zeta` | `mlkem_tables.inc`: zetas[77] := zetas[76], both planes. One entry, block 13 of the last NTT layer | `mlkem_ntt_layer L=6 (len=2) [all q-1]: first diff at coeff 52` (also INTT `L=0`, basemul pair 26 — every consumer of zeta 77, nothing else) |
+| `reduce-bound-off-by-one` | `mlkem_poly_reduce` gets a private conditional subtract whose threshold is `q` instead of `q-1`, so `v == k*q` comes back as `q`. The shared `CSUBQ` also feeds `arith_init`/add/basemul, so the fault is scoped to reduce; the +258 B pad keeps `LIB_MLKEM_RODATA` on the same page offset | `mlkem_poly_reduce[k*q boundaries + extremes]: first diff at coeff 10: got 3329 want 0 (NON-CANONICAL)` — the only 3 failures in the run |
+| `ntt-missing-final-reduce` | *replaced*: every butterfly canonicalises in place and there is no final pass. Nearest fault of the class: the high-byte half of the masked subtract on `f[X]+t` is dropped (`sbc fq_e_lo` → `sbc #0`), leaving sums ≥ q non-canonical | `mlkem_ntt_layer L=0 (len=128) [all q-1]: first diff at coeff 0: got 4927 want 1599 (NON-CANONICAL)`; the S5 timing check trips too (the over-wide values change the multiply's page select) |
+| `butterfly-swapped-operand` | CT butterfly computes `f[Y] = t - f[X]` instead of `f[X] - t` (same size; SMC labels move with the `abs,x` instructions) | `mlkem_ntt_layer L=0 (len=128) [all q-1]: first diff at coeff 128: got 1601 want 1728` |
+| `loop-bpl-256` | `mlkem_poly_add` counts X down from 255 with `dex`/`bpl`: bit 7 of 254 is set, so the loop runs exactly once — P1's `keccak_clear` shape | `mlkem_poly_add[all q-1, all q-1]: first diff at coeff 0: got 3328 want 3327` (`zero, zero` passes, as it must) |
+| `basemul-accumulator-24bit` | *replaced*: every product is reduced before it is combined, so no 24-bit accumulator exists. Nearest fault of the class "operand exceeds the multiply's width assumption": the `(x0+x1)` sum feeding the Karatsuba middle product is not reduced (`jsr fq_csubq_p` → 3 `nop`), so `a1` reaches 26 and the 14×14 `|d|` table is over-run | `mlkem_poly_basemul[all q-1 x all q-1  (S4 accumulator width)]: first diff at coeff 1: got 2297 want 2` |
+| `basemul-zeta-sign` | the parity test `and #2` → `and #0`: every pair takes the even (+γ) path | `mlkem_poly_basemul[impulse[3]=q-1 x impulse[3]=q-1]: first diff at coeff 2: got 17 want 3312` |
+| `sub-no-wrap` | `mlkem_poly_sub`: the +q high-byte correction on borrow is masked out (`and #MLKEM_Q_HI` → `and #0`) | `mlkem_poly_sub[zero, all q-1  (S3 wrap)]: first diff at coeff 0: got 62209 want 1 (NON-CANONICAL)` |
+| `intt-scale-wrong` | the 128⁻¹ block constant is 3302, not 3303 | `mlkem_poly_intt[all q-1]: first diff at coeff 0: got 127 want 3328`; the per-layer INTT trace passes all 7 layers, so the scaling is what is named |
+| `ntt-data-dependent-branch` | the masked conditional subtract on `f[X]+t` becomes a `bcc`-guarded store. Functionally identical; one cycle per butterfly depends on the coefficient. Same size (29 B + `nop`) | `mlkem_poly_ntt: constant-time in its input (S5): all-zero=575,432, all q-1=578,552, random=579,048` — the ONLY failure in the run; INTT and basemul still measure constant |
+| `ntt-a1-range-12` | *extra*: the block table `U[k]` stops at k = 12 (`cpx #14` → `cpx #13`), restoring the a1 ≤ 12 assumption the implementer caught themselves; `a = q-1 = $0D00` is the only coefficient that reaches `U[13]` | `mlkem_poly_ntt[all q-1]: first diff at coeff 0: got 3166 want 2913` (`all-zero`, impulse=1 and `all 2048` pass) |
+| `sqpart-sign-mask` | *extra*: `SQPART`'s `|x-y| = (d ^ m) - m` loses the `- m` (`sbc ohi` → `sbc #0`): off by one whenever x < y in an 8×8 partial | `mlkem_poly_ntt[all-zero]: first diff at coeff 0: got 3128 want 0` |
+| `rtable-one-entry` | *extra*: `mlkem_arith_init` leaves one wrong entry in the BSS reduction table, `R1[13] = 3327` (`dec mlkem_r1_lo+13` after the build; +258 B pad) | `mlkem_poly_reduce[k*q boundaries + extremes]: first diff at coeff 2: got 254 want 3328` (`q-1 = $0D00` reads `R1[13]` directly) |
+| `smc-site-missing` | *extra*: one SMC site dropped from `nt_dst_lo_sites` (`ad_s05`, add's low-plane store, listed as `ad_s01` twice), so add stores its low bytes to `$FF00,x` | `mlkem_poly_add[all q-1, all q-1]: first diff at coeff 0: got 3072 want 3327` — the stale low byte |
+| `basemul-karatsuba` | *extra*: recombination `c1 = m - r00 - r00` instead of `m - r00 - r11` | `mlkem_poly_basemul[impulse[0]=q-1 x impulse[0]=q-1]: first diff at coeff 1: got 3328 want 0` — the four preceding cases have `r00 == r11` and pass, which is exactly why the impulse pairs exist |
 
-The `bpl` mutant and the missing-final-reduce mutant are the two that a naive
-"compare modulo q at the end" suite lets through; they are why `test_ntt.py`
-compares **canonical values** and includes **all-0xFFFF / all-(q-1)** inputs.
+Three WP1-specific tooling facts, learned the measured way:
 
-## Required WP2 mutants (samplers and codecs) — gate run, all 12 KILLED
+- **`.res` padding goes after the `rts`, not before it.** A mutant that
+  grows the code pads to exactly +258 B (2 B slack + one page) so
+  `LIB_MLKEM_RODATA` (align $40) lands on the same page offset and no
+  page-straddle assert changes state. The first `rtable-one-entry` patch put
+  the `.res 255` *inside* `mlkem_arith_init`, ahead of the `|d|` copy loop; the
+  6502 fell through 255 BRKs at boot and the kill was "banner did not
+  appear" — a non-local kill, correctly refused by the gate.
+- **`expect` must match the case name byte-for-byte, double spaces
+  included.** `test_ntt.py` names two cases `all q-1 x all q-1  (S4 …)` and
+  `zero, all q-1  (S3 wrap)`; the single-space `expect` was reported as
+  non-local while the log plainly showed the case. Copy the substring from a
+  log, never from memory.
+- **No red-phase test defect surfaced.** Every mutant was killed by the case
+  designed for it on the first real run; the two non-local reports above were
+  manifest typos and the BRK fall-through.
+
+## Required WP2 mutants (samplers and codecs) — gate run, all 13 KILLED
 
 Same manifest, `"test": "make test-sampler"`. `expect` is a substring the
 failure output must contain, so the kill is *localised*, not incidental.
@@ -66,13 +85,31 @@ green source.
 | `wp2-sample-ntt-block-short` | *extra*: block consumed as 55 triples (`cpx #SHAKE128_RATE-3`), the last triple of every 168 B block skipped | `mlkem_sample_ntt [needs 4 blocks (510 B > 504) ...]: index 83` |
 | `wp2-decode-reduces-mod-q` | *extra*: Alg. 6 literal `mod q` on a decoded field — violates the raw pass-through pin WP3's explicit `< q` ek check relies on | `mlkem_byte_decode_12 [all fields 0xFFF (>= q, raw)]: index 0: got 766 want 4095` |
 | `wp2-compress-stale-hi` | *extra*: high plane of the compressed poly never written (same-size `nop` replacement) | `mlkem_compress_1 [boundaries 0..]: index 0: got 60928 want 0` |
+| `wp2-rodata-align-reverted` | *extra*, `"expect_build_fail": true`: all three `.align 64` before the compress tables removed (the WP1 merge fix reverted) | build fails at LINK: `straddles a page: compress cost would depend on secret data` |
+
+### Alignment mutants and `expect_build_fail`
+
+A page-straddle `.assert ..., lderror` is a *layout-conditional* guard: it
+fires only when the table actually crosses a page. Dropping a single
+`.align 64` is therefore not deterministically killable — probed against
+a9cc7f5: removing the one before `cp_thi_lo` tripped the assert, removing
+the one before `cp_thi_hi` or `cp_tlo` built and passed (those tables landed
+inside a page by luck). The gate mutates the whole fix instead, and the
+manifest row carries `"expect_build_fail": true`: `mutate.py` then counts a
+FAILED build whose output contains `expect` as the kill, a build that fails
+for another reason as `non-local-kill`, and a build that succeeds as
+`survived`. Without that flag a failed build is always reported as a stale
+patch.
+
 
 Two layout facts bit while writing these and will bite again: the
 secret-indexed tables carry page-straddle `.assert`s, so a patch that
 changes code size by even 8 bytes can move `LIB_MLKEM_RODATA` onto a page
 edge and fail the LINK (the slack in the green tree is +36 / -8 bytes) —
 prefer same-size replacements (`nop`), and widen a `bne` loop to
-`beq :+ / jmp` when a mutant's extra bytes push it out of range.
+`beq :+ / jmp` when a mutant's extra bytes push it out of range. (Since
+a9cc7f5 the three compress tables are `.align 64`, so only the 32-byte CBD
+tables in `sample.s` still move with code size.)
 
 One red-phase defect surfaced: the original `nibble-asymmetric 0x0A5 / 0x5A0`
 encode vector was *symmetric under the nibble swap* (both swapped nibbles

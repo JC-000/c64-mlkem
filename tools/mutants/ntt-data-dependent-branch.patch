@@ -1,0 +1,32 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -572,19 +572,20 @@
+         lda fq_r_hi
+ nt_s06: adc $FF00,x
+         sta fq_p1
+-        lda #<(MLKEM_Q - 1)
+-        cmp fq_p0
+-        lda #>(MLKEM_Q - 1)
+-        sbc fq_p1
+-        lda #0
+-        sbc #0
+-        and #MLKEM_Q_HI
++        lda fq_p0
++        sec
++        sbc #<MLKEM_Q
+         sta fq_e_lo
++        lda fq_p1
++        sbc #>MLKEM_Q
++        bcc @keep
++        sta fq_p1
++        lda fq_e_lo
++        sta fq_p0
++@keep:  nop
+         lda fq_p0
+-        sbc #0
+ nt_s07: sta $FF00,x
+         lda fq_p1
+-        sbc fq_e_lo
+ nt_s08: sta $FF00,x
+         ; f[Y] = d
+         lda fq_px

@@ -1,0 +1,37 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -959,7 +959,7 @@
+         lda mlkem_r1_hi,y
+         adc #0
+         sta fq_p1
+-        jsr fq_csubq_p
++        jsr rd_csubq_mut
+         lda fq_p0
+ rd_s03: sta $FF00,x
+         lda fq_p1
+@@ -968,6 +968,25 @@
+         bne pr_loop
+         rts
+ 
++; MUTANT: threshold q instead of q-1, so v == q is "< q" and stays q.
++rd_csubq_mut:
++        lda #<MLKEM_Q
++        cmp fq_p0
++        lda #>MLKEM_Q
++        sbc fq_p1
++        lda #0
++        sbc #0
++        and #MLKEM_Q_HI
++        sta fq_px
++        lda fq_p0
++        sbc #0
++        sta fq_p0
++        lda fq_p1
++        sbc fq_px
++        sta fq_p1
++        rts
++        .res 258 - 29            ; keep LIB_MLKEM_RODATA on the same page offset
++
+ ; =============================================================================
+ ; mlkem_arith_init — build R1 / R2 in LIB_MLKEM_BSS. Idempotent; call once at
+ ; boot, after nothing in particular (it does not read sqtab). Public data.

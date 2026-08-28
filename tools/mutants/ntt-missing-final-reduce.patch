@@ -1,0 +1,11 @@
+--- a/src/ntt.s	2026-08-28 18:12:59
++++ b/src/ntt.s	2026-08-28 18:12:59
+@@ -584,7 +584,7 @@
+         sbc #0
+ nt_s07: sta $FF00,x
+         lda fq_p1
+-        sbc fq_e_lo
++        sbc #0
+ nt_s08: sta $FF00,x
+         ; f[Y] = d
+         lda fq_px

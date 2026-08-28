@@ -22,7 +22,10 @@ Manifest (JSON):
           "patch": "ntt-wrong-zeta.patch",        # relative to the manifest
           "test":  "make test-ntt",               # optional, overrides default
           "description": "...",
-          "expect": "..."                         # free text: what should catch it
+          "expect": "..."                         # substring the failing output must contain
+          "expect_build_fail": true               # optional: the kill IS a failed build
+                                                  # (link-time .assert); expect is matched
+                                                  # against the build output instead
         }, ...
       ]
     }
@@ -154,6 +157,23 @@ def main():
             continue
 
         rc, out = run(build_cmd, wd, log=log)
+        if m.get("expect_build_fail"):
+            # Alignment / link-time-assert mutants: the correct kill is a
+            # build that FAILS on the named assert, so `expect` is matched
+            # against the build output and the test is never run.
+            expect = m.get("expect", "")
+            if rc != 0 and expect in out:
+                print(f"    KILLED AT BUILD  (as expected: {expect!r})")
+                results.append((name, "killed"))
+                if not args.keep:
+                    shutil.rmtree(wd, ignore_errors=True)
+            elif rc != 0:
+                print(f"    BUILD FAILED, but not on the expected assert {expect!r}\n{out[-800:]}")
+                results.append((name, "non-local-kill"))
+            else:
+                print(f"    SURVIVED — the build was expected to fail and did not. Tree kept at {wd}")
+                results.append((name, "survived"))
+            continue
         if rc != 0:
             print(f"    BUILD FAILED (a mutant must build; fix the patch)\n{out[-800:]}")
             results.append((name, "build-failed"))
