@@ -43,11 +43,16 @@
 ; on its high byte (W = V0 + R1[V1] < 256 + q) and one masked conditional
 ; subtract gives [0, q).
 ;
-; Cost, measured by `make test-ntt` (see README): the NTT butterfly is
-; ~490 cycles, of which the block-table multiply is ~330; a general multiply
-; ~450. Cheaper alternatives considered and rejected are in HANDOFF-P2 /
-; docs/contract-p2-alignment.md §3 (the §8.3 body: ~4 partials + 2 re-bakes
-; per butterfly through jsr) and the report.
+; Cost, measured by `make test-ntt` (VICE, cycle-exact, identical across
+; all-zero / all q-1 / random / impulse inputs):
+;     mlkem_poly_ntt      579,016 cycles  (896 butterflies + 127 block tables:
+;                                          ~560 per butterfly all-in)
+;     mlkem_poly_intt     665,120 cycles  (NTT shape + 256 scalings by 3303)
+;     mlkem_poly_basemul  308,063 cycles  (128 pairs x 4 general multiplies)
+; The block-table multiply is ~330 cycles (2 partials of 76 + 17 for U + the
+; ~130-cycle table reduction), a general multiply ~440. The rejected §8.3
+; canonical body would cost ~4 partials + 2 re-bakes per butterfly through
+; jsr (docs/contract-p2-alignment.md §3).
 ;
 ; CONSTANT TIME. The coefficient is the secret; zeta and the loop indices are
 ; public. No instruction below branches on a coefficient: the conditional
@@ -102,7 +107,11 @@ fq_e_hi = mlkem_zp_len + 1
 ; =============================================================================
 .segment "LIB_MLKEM_RODATA"
 
-; Zetas (256 B, split-plane, generated) and the reduction equates.
+; Zetas (256 B, split-plane, generated) and the reduction equates. The zeta
+; planes are indexed by nt_zidx / the basemul pair index — PUBLIC loop
+; position, never a coefficient — so they need no page alignment (a page
+; cross there costs a cycle that depends on the call, not on the secret).
+; The same holds for the SMC site lists below (walked by constant counts).
 .include "mlkem_tables.inc"
 
 ; t(|k - 13|) for k = 0..26: the quarter-square of a signed difference in
