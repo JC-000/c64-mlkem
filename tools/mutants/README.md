@@ -108,7 +108,7 @@ offset takes one of four values 64 B apart (the segment start is the code
 end rounded up to `$40`); one of the four always fits inside a page, so no
 pad makes the straddle deterministic across layouts. P3's lever 1 (+31 B)
 moved the span from a straddling phase to a fitting one and the mutant
-survived; the pad (`.res 192` after lever 3) shifts it back to a straddling phase for the
+survived; the pad (re-picked after every lever since) shifts it back to a straddling phase for the
 current link. Whenever `make test-mutants` reports this one as survived
 after a code-size change, re-pick the pad (0 / 64 / 128 / 192) from
 `build/mutants/wp2-rodata-align-reverted/build/labels.txt` — it is the

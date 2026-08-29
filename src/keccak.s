@@ -121,17 +121,23 @@ keccak_tmp:     .res 8             ; one lane of scratch
 ; =============================================================================
 .proc keccak_theta
         ; --- C[k] = XOR of the five rows, k = 0..39 ------------------------
-        ldx #0
+        ; Four bytes per iteration, X = 36, 32, .. 0 (bpl exits on $FC): the
+        ; loop overhead is 11 cycles per 4 bytes instead of 7 per byte.
+        ldx #36
 c_loop:
-        lda keccak_state+0,x
-        eor keccak_state+40,x
-        eor keccak_state+80,x
-        eor keccak_state+120,x
-        eor keccak_state+160,x
-        sta keccak_C,x
-        inx
-        cpx #40
-        bne c_loop
+        .repeat 4, i
+        lda keccak_state+0+i,x
+        eor keccak_state+40+i,x
+        eor keccak_state+80+i,x
+        eor keccak_state+120+i,x
+        eor keccak_state+160+i,x
+        sta keccak_C+i,x
+        .endrepeat
+        dex
+        dex
+        dex
+        dex
+        bpl c_loop
 
         ; --- mirror: C[-1] = C[4], C[5] = C[0] ------------------------------
         ldx #7

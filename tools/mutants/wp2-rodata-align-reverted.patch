@@ -6,7 +6,7 @@
  ; 14 * d_index + h. Computed by the assembler from the definition.
 -.align 64                ; WP1 merge fix: keep the straddle assert below layout-independent (cfg align = $40)
 -cp_thi_lo:
-+.res 192                 ; MUTANT: layout-tuned pad so a table straddles under the current link (see README)
++.res 128                 ; MUTANT: layout-tuned pad so a table straddles under the current link (see README)
 +cp_thi_lo:                ; MUTANT: .align 64 dropped
  .repeat 14, h
          .byte <((h * 256 * 2) / MLKEM_Q)

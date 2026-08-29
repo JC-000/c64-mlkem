@@ -287,7 +287,7 @@ check-archives: lib lib-keccak
 	done; \
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7424 3
-	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 1792 0
+	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
 
 # §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
 # has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
