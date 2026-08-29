@@ -54,7 +54,7 @@
 .import keccak_state
 
 ; --- zero-page aliases (within the 8 bytes declared in zp_config.s) ---------
-kc_count   = mlkem_zp_tmp + 0      ; rho+pi: packed rotation count across the copy; iota: RC pointer lo
+kc_count   = mlkem_zp_tmp + 0      ; iota: RC pointer lo (P1 used it as the rotation pass counter)
 kc_lane    = mlkem_zp_tmp + 1      ; iota: RC pointer hi (P1 used it as the lane counter)
 kc_rowbase = mlkem_zp_len + 0      ; chi row base: 0, 40, 80, 120, 160
 kc_round   = mlkem_zp_len + 1      ; round counter 0..23
@@ -202,24 +202,31 @@ col_loop:
 ;     passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
 ;     The decomposition is verified for all 25 lanes in tools/test_keccak_ref.py.
 ;
-; And one from P3 (lever 4): THE LANE LOOP IS A GENERATED SCRIPT. P1 walked a
-; lane counter through four 25-entry tables and a jump vector, ~80 cycles of
-; bookkeeping per lane. The 25 lanes are now straight-line KECCAK_LANE
-; expansions (src/keccak_tables.inc, from the validated model): every
-; parameter is an immediate, the copy variant is a `jsr` and it tail-jumps
-; into the rotation dispatch with the packed pass count still in A. No table
-; is read, so nothing here can straddle a page. 9 bytes per lane.
+; And one from P3 (levers 4 and 5b): THE LANE LOOP IS A GENERATED SCRIPT.
+; P1 walked a lane counter through four 25-entry tables and a jump vector,
+; ~80 cycles of bookkeeping per lane. The 25 lanes are now straight-line
+; KECCAK_LANE expansions (src/keccak_tables.inc, from the validated model):
+; every parameter is an immediate, the copy variant is a plain `jsr`, and
+; the bit rotation is a `jsr` straight to the entry for that lane's pass
+; count in an unrolled pass ladder (rot_left4 falls into rot_left3 ... into
+; the rts), so there is no dispatch and no pass counter. No table is read,
+; so nothing here can straddle a page. 7 or 10 bytes per lane.
 ;
 ; Register discipline through one lane:
-;     Y = 8 * source lane                      (copy only; pass counter after)
+;     Y = 8 * source lane                      (copy only)
 ;     X = destination byte offset in keccak_B  (held across copy AND rotate)
-;     A = packed rotation: passes in bits 0-6, bit 7 = right
 ; =============================================================================
 .macro KECCAK_LANE lane, dst, s, sc
         ldy #8 * lane
         ldx #dst
-        lda #sc
         jsr .ident(.sprintf("copy_s%d", s))
+    .if (sc & $7F) > 0
+        .if sc & $80
+        jsr .ident(.sprintf("rot_right%d", sc & $7F))
+        .else
+        jsr .ident(.sprintf("rot_left%d", sc & $7F))
+        .endif
+    .endif
 .endmacro
 
 .proc keccak_rhopi
@@ -227,14 +234,10 @@ col_loop:
         rts
 .endproc
 
-; --- rotation dispatch: entered from the copy variants with A = sc ---------
-; X = destination offset, unchanged. Y is free once the copy is done and
-; serves as the pass counter (dey/bne: 5 cycles a pass against dec zp's 8).
-rot_dispatch:
-        beq rot_done
-        bmi rot_right_entry
-        tay
-rot_left:
+; --- the rotation pass ladders, in place at keccak_B + X -------------------
+; rot_leftN / rot_rightN rotate the lane by N bits (N = 1..4): each entry is
+; one pass that falls through into the next-lower entry and finally the rts.
+.macro ROT_LEFT_PASS
         lda keccak_B+7,x
         asl a                       ; C = bit 63
         rol keccak_B+0,x
@@ -245,15 +248,8 @@ rot_left:
         rol keccak_B+5,x
         rol keccak_B+6,x
         rol keccak_B+7,x
-        dey
-        bne rot_left
-rot_done:
-        rts
-
-rot_right_entry:
-        and #$7F
-        tay
-rot_right:
+.endmacro
+.macro ROT_RIGHT_PASS
         lda keccak_B+0,x
         lsr a                       ; C = bit 0
         ror keccak_B+7,x
@@ -264,23 +260,29 @@ rot_right:
         ror keccak_B+2,x
         ror keccak_B+1,x
         ror keccak_B+0,x
-        dey
-        bne rot_right
+.endmacro
+
+rot_left4:  ROT_LEFT_PASS
+rot_left3:  ROT_LEFT_PASS
+rot_left2:  ROT_LEFT_PASS
+rot_left1:  ROT_LEFT_PASS
+        rts
+rot_right4: ROT_RIGHT_PASS
+rot_right3: ROT_RIGHT_PASS
+rot_right2: ROT_RIGHT_PASS
+rot_right1: ROT_RIGHT_PASS
         rts
 
 ; --- the eight byte-rotation copy variants ---------------------------------
 ; Each writes all 8 source bytes to their rotated destination positions:
 ;     keccak_B[dst + ((j + s) & 7)] = keccak_state[8*lane + j]
-; Straight-line lda abs,Y / sta abs,X pairs — no index arithmetic at all —
-; then straight into the bit rotation with the packed count back in A.
+; Straight-line lda abs,Y / sta abs,X pairs — no index arithmetic at all.
 .macro COPY_VARIANT s
-        sta kc_count                ; packed count, restored after the copy
     .repeat 8, j
         lda keccak_state+j,y
         sta keccak_B+((j+s) & 7),x
     .endrepeat
-        lda kc_count
-        jmp rot_dispatch
+        rts
 .endmacro
 
 copy_s0: COPY_VARIANT 0
