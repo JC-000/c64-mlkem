@@ -6,36 +6,40 @@ easy to get wrong.
 
 ## Scope discipline
 
-P1 and P2 are both complete (v0.5.0). No changes to `c64-https` (consumer
+P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
+landed (v0.5.1, implementation-only, ABI 2). No changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
 
-## The numbers P1 + P2 owed — all in hand as of v0.5.0
+## The numbers — as of v0.5.1 (P3 pass)
 
-1. **Keccak-f[1600] = 456,605 cycles** (19,025/round; 456,720 in the v0.5.0
-   link — the RC table's page crossings move with the rodata layout). Was
-   600,771 before the rho+pi pass; `v0.2.0` preserves that baseline.
-2. **KeyGen 26,835,087 · Encaps 30,221,505 · Decaps 35,093,202 cycles.**
-   keygen+decaps = **61,928,289**, of which **40.2M (65%) is 88 Keccak
-   permutations** and 17.7M is NTT/INTT/basemul (579,016 / 665,120 / 308,063
-   per call). Inside the 40–70M budget, upper half. About a minute of CPU per
-   TLS handshake for the PQ half alone.
-3. **6,719 B resident** shipped (5,694 code + 1,025 rodata; 6,892 with test
-   hooks), declared 6912. **87.5% of the 7,680 B `CRYPTO_OVERLAY` window, no
+1. **Keccak-f[1600] = 339,688 cycles** (14,154/round), **link-invariant**
+   since v0.5.1 (P1: 456,605, and it moved with the rodata layout; 600,771
+   at `v0.2.0`, which preserves that baseline). Six P3 commits, one lever
+   each, numbers in their messages.
+2. **KeyGen 21,801,702 · Encaps 24,880,455 · Decaps 29,597,879 cycles.**
+   keygen+decaps = **51,399,581**, of which **29.9M (58%) is 88 Keccak
+   permutations** and 17.4M is NTT/INTT/basemul (578,948 / 618,146 / 307,993
+   per call). Inside the 40–70M budget, just under the midpoint. About 50 s
+   of CPU per TLS handshake for the PQ half alone. (v0.5.0: 61,928,289 =
+   26,835,087 + 35,093,202.)
+3. **7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
+   hooks), declared 7424. **93.9% of the 7,680 B `CRYPTO_OVERLAY` window, no
    split needed** — but only ~2.5 KB of that window is actually free in
-   c64-https' default UCI cfg, so the consumer must re-plan its overlay (P4).
-   Keccak-only member set: 1,477 B, unchanged. **BSS 6,641 B**, excluding the
-   caller's ek/dk/ct (4,672 B).
+   c64-https' default UCI cfg, so the consumer must re-plan its overlay (P4;
+   fit is explicitly deferred per HANDOFF-P3). Keccak-only member set:
+   1,947 B, declared 2048. **BSS 6,641 B**, excluding the caller's ek/dk/ct
+   (4,672 B).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
    199 per-step Keccak checks; **45/45 mutants killed** (WP1 15, WP2 13,
    WP3 17). All constant-time claims are measured cycle pins, not assertions.
 5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
 
-**The headline is bad news and must not be softened:** Keccak is 1.3x the
-TOP of the roadmap's estimate band and it is 65% of every ML-KEM operation.
-The non-Keccak 15–45M estimate came in at 21.7M; the total survives the 40–70M
-budget only because that band was wide.
+**The headline must not be softened:** Keccak is now inside the roadmap's
+150–350k band (3% under its top) only after a 26% cut, and it is still 58%
+of every ML-KEM operation. The non-Keccak 15–45M estimate came in at 21.5M;
+the total survives the 40–70M budget because that band was wide.
 
 ## Toolchain traps
 
@@ -61,10 +65,30 @@ budget only because that band was wide.
   the next page. Cost 253 B of BSS here before it was spotted. Put aligned
   buffers first, odd bytes last.
 - **`jmp (abs)` fetches the high byte from the same page as the low one.** A
-  vector whose low byte is `$FF` reads garbage. `kc_jmp` carries a link-time
-  assert against exactly that.
-- **Branch displacement is 8-bit.** Both `keccak_rhopi`'s lane loop and any
+  vector whose low byte is `$FF` reads garbage. P1's `kc_jmp` carried a
+  link-time assert against exactly that; since v0.5.1 rho+pi has no vector
+  (the lane loop is a generated straight-line script), but the trap applies
+  to any `jmp (abs)` added later.
+- **Branch displacement is 8-bit.** `keccak_theta`'s column loop and any
   other long body need `beq :+ / jmp target` instead of a plain `bne`.
+- **A taken branch across a page edge costs a cycle, and the code's page
+  offset is the consumer's.** Rodata placement no longer moves the Keccak
+  count (v0.5.1), but a loop whose `bne` lands on a page edge in some link
+  still adds one cycle per iteration — chi measured 4,191 and 4,230 per
+  round in two P3 links, code untouched. Bound it (≤ 1,200/permutation
+  here); do not chase it.
+- **`wp2-rodata-align-reverted` is layout-tuned and re-picked after every
+  code-size change.** The three bare compress tables are one 148 B span
+  whose page phase takes one of four values; one always fits, so no pad
+  makes the straddle deterministic. When the gate reports it survived after
+  a size change, re-pick the pad (0/64/128/192) from the mutant's
+  `labels.txt` — `tools/mutants/README.md` has the procedure. It moved
+  three times in P3.
+- **A whole-tree diff between an edit and a checkout is not a mutant
+  patch.** The diff captures every uncommitted change in the tree, and the
+  checkout then discards the lever you were working on (it happened once in
+  P3; the saved copy was the only reason it cost nothing). Build patches
+  with `diff -u` against a scratch copy, as `tools/mutants/README.md` says.
 - **A page-straddle `.assert` needs a backing align, or it is a coin toss.**
   `src/codec.s` asserts three secret-indexed tables do not cross a page; the
   assert only *fails* when the layout happens to straddle, so a green link

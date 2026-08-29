@@ -13,35 +13,39 @@ times. (Per the intake rule, a `LIB_PRECALC_*` export without a row here — or
 a row without the export — blocks merge; both are absent, consistently.) The
 P2 rows are in the next section.
 
-The complete `LIB_MLKEM_RODATA` inventory, 308 B in total:
+The complete `LIB_MLKEM_RODATA` inventory, 192 B in total (308 B up to
+v0.5.0: P3 turned the five rho+pi lookup tables into immediates in a
+generated straight-line lane script, see below):
 
 | Table | Size | Region | Source | Classification | Why it is below the floor |
 |---|---:|---|---|---|---|
 | `keccak_rc` | 192 B | RODATA | `src/keccak_tables.inc` | algorithm-specific | Hot-loop-read (once per round, 24 rounds), but **192 B < 256 B**. It is the FIPS 202 round-constant sequence — fixed by the standard, identical in any Keccak implementation, and derivable from a 7-bit LFSR in ~150 B of code if the space is ever wanted back. |
-| `keccak_pi_dst` | 25 B | RODATA | `src/keccak_tables.inc` | algorithm-specific | 25 B. Destination byte offset per source lane for the fused rho+pi step. |
-| `keccak_rot_byte` | 25 B | RODATA | `src/keccak_tables.inc` | algorithm-specific | 25 B. Whole-byte component of the rho rotation. |
-| `keccak_rot_cnt` | 25 B | RODATA | `src/keccak_tables.inc` | algorithm-specific | 25 B. Residual bit-rotation count, 0..4. |
-| `keccak_rot_dir` | 25 B | RODATA | `src/keccak_tables.inc` | algorithm-specific | 25 B. Rotation direction; see note below. |
-| `copy_vec` | 16 B | RODATA | `src/keccak.s` | algorithm-specific | 16 B. Jump table selecting one of eight unrolled byte-rotation copy routines. |
 
 ## Classification rationale
 
-All six are **algorithm-specific, not potentially shareable**. They encode
-FIPS 202's ρ offsets, π permutation and round constants, plus this
-implementation's own dispatch. Nothing here is a general numeric aid (no
+It is **algorithm-specific, not potentially shareable**: the FIPS 202 round
+constants. (Up to v0.5.0 five more tables — `keccak_pi_dst`,
+`keccak_rot_byte`, `keccak_rot_cnt`, `keccak_rot_dir`, 25 B each, and the
+16 B `copy_vec` jump table — encoded the ρ offsets, the π permutation and
+the copy dispatch; they were likewise algorithm-specific and below the
+floor.) Nothing here is a general numeric aid (no
 multiply tables, no quarter-squares), so there is no cross-library sharing
 story to have — which is also why `mlkem-keccak.a`'s `LIB_MLKEM_SHARED_PRIMITIVES`
 and `LIB_MLKEM_SHARED_CONSUMES` are both `0`: Keccak is XOR/AND/NOT/rotate only
 and contains no multiply at all.
 
-`keccak_rot_byte` / `keccak_rot_cnt` / `keccak_rot_dir` are one logical table
-split into three parallel arrays so each is reachable with a single `lda
-table,y`. They encode the decomposition `ROTL64(v, 8s+b)` = byte-rotate then a
-bit-rotate in whichever direction is shorter, which caps the bit passes at 4
-instead of 7. Even summed (75 B) they stay well below the floor.
+Since v0.5.1 the ρ/π data is not a table at all: `tools/gen_tables.py`
+emits the 25 lanes as `KECCAK_LANE lane, dst, s, sc` macro invocations
+(`KECCAK_RHOPI_SCRIPT` in `src/keccak_tables.inc`), and `src/keccak.s`
+expands each into `ldy #`/`ldx #`/`jsr copy_sN`/`jsr rot_{left,right}N`.
+The decomposition `ROTL64(v, 8s+b)` = byte-rotate then a bit-rotate in
+whichever direction is shorter (capping the passes at 4 instead of 7) is
+still verified for all 25 lanes by `tools/test_keccak_ref.py`; the bytes
+now live in `LIB_MLKEM_CODE` (225 B of script) rather than in rodata, and
+nothing in the permutation reads a table at run time.
 
-All are generated from the validated reference model by `tools/gen_tables.py`
-(`make tables`), never hand-written.
+Everything here is generated from the validated reference model by
+`tools/gen_tables.py` (`make tables`), never hand-written.
 
 ## P2 (rows landed: WP1 two, WP4 one)
 
@@ -92,6 +96,6 @@ consumer's build-wide define (`make check-prefix` enforces it).
 
 Decompress_4 lookup (32 B), the Compress/Barrett constants (≤ 8 B), any
 bit-reversal table (128 B — and FIPS 203's in-place NTT needs none), and
-all six P1 Keccak tables above. A Decompress_10 lookup (2,048 B) would
+the P1 round-constant table above. A Decompress_10 lookup (2,048 B) would
 clear the floor but must not be built: it is a quarter of P2's code+rodata
 budget for one multiply-and-shift.

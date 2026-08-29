@@ -25,10 +25,13 @@
 ; long, so every `abs,X` access below stays inside one page — no +1-cycle page
 ; -cross penalty, and the cost does not depend on which lane is touched.
 ;
-; SIZE/SPEED: this is the compact form the P1 brief asks for first. The round
-; constants are a 192-byte table rather than being generated on the fly (which
-; would save ~150 B); unrolling and the RC-generator trade-off are deliberately
-; left as MEASURED decisions, not defaults. See README.
+; SIZE/SPEED: P1 shipped the compact, table-driven form (1,477 B, 456,605
+; cycles). P3 (v0.5.1) spent 470 B of unrolling where measurement said the
+; bookkeeping was — theta's three passes fused into one column loop, the
+; rho+pi lane loop replaced by a generated straight-line script, the rotation
+; passes unrolled into ladders, iota's RC read through a pointer — for
+; 339,688 cycles, link-invariant. The round constants stay a 192-byte table
+; (an LFSR generator would save ~40 B net). Every step is measured in README.
 ; =============================================================================
 
 .include "constants.s"
