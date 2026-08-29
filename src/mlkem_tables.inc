@@ -12,6 +12,7 @@ MLKEM_Q_LO       = $01
 MLKEM_Q_HI       = $0D
 MLKEM_NEG_Q16    = $F2FF       ; -q mod 2^16, for a 16-bit add-based reduce
 MLKEM_N_INV      =  3303        ; 128^-1 mod q, the INTT scaling (Alg. 10)
+MLKEM_N_INV_Z1   =  1652        ; zetas[1] * 128^-1 mod q: the last INTT layer's block constant with the scaling folded in
 MLKEM_BARRETT_26 = 20158        ; floor(2^26 / q), Barrett multiplier for 16-bit inputs
 MLKEM_QINV_16    = 62209        ; q^-1 mod 2^16 (Montgomery, R = 2^16)
 MLKEM_NEG_QINV16 =  3327        ; -q^-1 mod 2^16

@@ -47,7 +47,7 @@
 ; all-zero / all q-1 / random / impulse inputs):
 ;     mlkem_poly_ntt      579,016 cycles  (896 butterflies + 127 block tables:
 ;                                          ~560 per butterfly all-in)
-;     mlkem_poly_intt     665,120 cycles  (NTT shape + 256 scalings by 3303)
+;     mlkem_poly_intt     618,150 cycles  (NTT shape + 128 scalings by 3303)
 ;     mlkem_poly_basemul  308,063 cycles  (128 pairs x 4 general multiplies)
 ; The block-table multiply is ~330 cycles (2 partials of 76 + 17 for U + the
 ; ~130-cycle table reduction), a general multiply ~440. The rejected §8.3
@@ -619,6 +619,7 @@ itl_block:
         stx nt_savex
         jsr nt_fetch_zeta
         dec nt_zidx
+itl_block_ready:                        ; entry with the block table already built
         ldx nt_savex
         txa
         clc
@@ -716,6 +717,12 @@ mlkem_poly_ntt:
 ; =============================================================================
 ; mlkem_poly_intt — (dst) <- NTT^-1(dst), FIPS 203 Alg. 10 including the
 ; final 128^-1 = 3303 scaling. Canonical output.
+;
+; The scaling is half folded: the last layer (len 128, one block, zeta_1)
+; already multiplies f[Y] = f[128..255] by its block constant, so that layer
+; runs with zetas[1] * 128^-1 (MLKEM_N_INV_Z1, generated) and only the
+; unmultiplied half f[X] = f[0..127] needs the explicit 128^-1 pass. That is
+; 128 block multiplies instead of 256 (P3 lever 1, measured -46,970 cycles: 665,120 -> 618,150).
 ; =============================================================================
 mlkem_poly_intt:
         jsr nt_patch_dst
@@ -728,9 +735,22 @@ mlkem_poly_intt:
 pi_layer:
         jsr intt_layer_run
         lsr nt_blocks
-        asl nt_len                      ; 2 .. 128, then 0: done
+        asl nt_len                      ; 2 .. 64, then 128: the folded layer
+        lda nt_len
+        cmp #128
         bne pi_layer
-        ; scale every coefficient by 128^-1 (a public block constant)
+        ; last layer with the scaling folded into its (only) block constant
+        lda #<MLKEM_N_INV_Z1
+        sta fq_b_lo
+        lda #>MLKEM_N_INV_Z1
+        sta fq_b_hi
+        jsr fq_setblk
+        lda #1
+        sta nt_bcnt
+        lda #0
+        sta nt_savex
+        jsr itl_block_ready
+        ; scale the lower half f[0..127] by 128^-1 (a public block constant)
         lda #<MLKEM_N_INV
         sta fq_b_lo
         lda #>MLKEM_N_INV
@@ -750,6 +770,7 @@ sc_s03: sta $FF00,x
         lda fq_r_hi
 sc_s04: sta $FF00,x
         inx
+        cpx #128
         bne pi_scale
         rts
 

@@ -48,6 +48,7 @@ def emit_mlkem(o):
     o(f"MLKEM_Q_HI       = ${Q >> 8:02X}\n")
     o(f"MLKEM_NEG_Q16    = ${(-Q) & 0xFFFF:04X}       ; -q mod 2^16, for a 16-bit add-based reduce\n")
     o(f"MLKEM_N_INV      = {M.N_INV:5d}        ; 128^-1 mod q, the INTT scaling (Alg. 10)\n")
+    o(f"MLKEM_N_INV_Z1   = {(M.ZETAS[1] * M.N_INV) % Q:5d}        ; zetas[1] * 128^-1 mod q: the last INTT layer's block constant with the scaling folded in\n")
     o(f"MLKEM_BARRETT_26 = {(1 << 26) // Q:5d}        ; floor(2^26 / q), Barrett multiplier for 16-bit inputs\n")
     o(f"MLKEM_QINV_16    = {qinv:5d}        ; q^-1 mod 2^16 (Montgomery, R = 2^16)\n")
     o(f"MLKEM_NEG_QINV16 = {(-qinv) % R:5d}        ; -q^-1 mod 2^16\n")

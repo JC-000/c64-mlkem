@@ -286,7 +286,7 @@ check-archives: lib lib-keccak
 	  done; \
 	done; \
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
-	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 6912 3
+	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7168 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 1536 0
 
 # §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
