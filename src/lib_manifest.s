@@ -65,7 +65,7 @@
 ; set 6719 B. Both are literal decimals so tools/check_manifest.py can read
 ; them without evaluating expressions.
 .ifdef MLKEM_KECCAK_ONLY
-LIB_MLKEM_RESIDENT_BYTES = 1536
+LIB_MLKEM_RESIDENT_BYTES = 1792
 .else
 LIB_MLKEM_RESIDENT_BYTES = 7168
 .endif

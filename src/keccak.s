@@ -81,9 +81,14 @@ copy_vec:
 ; buffers come first; the odd bytes go at the end where they are free.
 .align 256
 keccak_B:       .res 200           ; rho+pi destination; page-aligned
-keccak_C:       .res 40            ; theta column parities
-keccak_rot:     .res 40            ; ROTL64(C[x], 1)
-keccak_D:       .res 40            ; theta D[x]
+; theta's column parities with a one-lane mirror on each side:
+;     [C4'] [C0 C1 C2 C3 C4] [C0']
+; so that C[col-1] and C[col+1] are fixed displacements from C[col] for every
+; column, no mod-40 wrap. 56 B, which is exactly the tail of keccak_B's page:
+; every theta access stays inside that page, so none pays a crossing cycle.
+keccak_Cx:      .res 56
+keccak_C        = keccak_Cx + 8
+.assert >keccak_B = >(keccak_Cx + 55), lderror, "keccak_Cx leaves keccak_B's page: theta cost would move with the layout"
 keccak_tmp:     .res 8             ; one lane of scratch
 
 ; kc_dst / kc_jmp live in BSS rather than zero page so the library's declared
@@ -124,6 +129,13 @@ kc_jmp:         .res 2             ; indirect vector for the copy dispatch
 ; Byte offsets: lane (x,y) is at 40y + 8x, so a column's five lanes sit exactly
 ; 40 bytes apart — which is why the C loop below is one flat 40-iteration pass
 ; rather than a nested one.
+;
+; D is never stored. After C is mirrored (C[-1] = C[4], C[5] = C[0]) the
+; column loop walks X = 8*col and, per byte, rotates C[col+1] left by one
+; (the rol carry chain runs down the lane; eor/tay/sta leave C alone), XORs
+; C[col-1], parks the D byte in Y and applies it to the five rows straight
+; away. That fuses P1's three passes (rot 535 + D 2,000 + apply 2,880
+; cycles/round) into one of ~2,700 (P3 lever 3; measured in README).
 ; =============================================================================
 .proc keccak_theta
         ; --- C[k] = XOR of the five rows, k = 0..39 ------------------------
@@ -139,77 +151,48 @@ c_loop:
         cpx #40
         bne c_loop
 
-        ; --- rot[x] = ROTL64(C[x], 1), five lanes --------------------------
-        ; 64-bit rotate-left-by-1 on a little-endian lane: seed the carry with
-        ; bit 63 (top bit of byte 7), then rol bytes 0..7 in ascending order.
+        ; --- mirror: C[-1] = C[4], C[5] = C[0] ------------------------------
+        ldx #7
+:       lda keccak_C+32,x
+        sta keccak_C-8,x
+        lda keccak_C+0,x
+        sta keccak_C+40,x
+        dex
+        bpl :-
+
+        ; --- per column: D = C[col-1] ^ ROTL64(C[col+1], 1); A[col,*] ^= D --
         ldx #0
-rot_loop:
-        lda keccak_C+7,x
-        asl a                       ; C = old bit 63
+col_loop:
+        lda keccak_C+8+7,x
+        asl a                       ; C = bit 63 of C[col+1]
         .repeat 8, i
-        lda keccak_C+i,x
-        rol a                       ; lda does not disturb the carry
-        sta keccak_rot+i,x
+        lda keccak_C+8+i,x
+        rol a                       ; carry chains from the previous byte
+        eor keccak_C-8+i,x          ; A = D[col] byte i
+        tay
+        eor keccak_state+0+i,x
+        sta keccak_state+0+i,x
+        tya
+        eor keccak_state+40+i,x
+        sta keccak_state+40+i,x
+        tya
+        eor keccak_state+80+i,x
+        sta keccak_state+80+i,x
+        tya
+        eor keccak_state+120+i,x
+        sta keccak_state+120+i,x
+        tya
+        eor keccak_state+160+i,x
+        sta keccak_state+160+i,x
         .endrepeat
         txa
         clc
         adc #8
         tax
         cpx #40
-        bne rot_loop
-
-        ; --- D[k] = C[(k+32) mod 40] ^ rot[(k+8) mod 40], k = 0..39 --------
-        ; For k = 8*col + j, (k+32) mod 40 selects column (col+4) mod 5 and
-        ; (k+8) mod 40 selects column (col+1) mod 5 — both at the same byte j.
-        ldx #0
-d_loop:
-        txa
-        clc
-        adc #32
-        cmp #40
-        bcc :+
-        sbc #40
-:       tay
-        lda keccak_C,y
-        sta kc_count                ; stash C[(k+32) mod 40]
-        txa
-        clc
-        adc #8
-        cmp #40
-        bcc :+
-        sbc #40
-:       tay
-        lda keccak_rot,y
-        eor kc_count
-        sta keccak_D,x
-        inx
-        cpx #40
-        bne d_loop
-
-        ; --- A[i] ^= D[i mod 40] for all 200 bytes --------------------------
-        ; Unrolled over the five rows so the D index is just X, with no
-        ; separate wrapping counter.
-        ldx #0
-apply:
-        lda keccak_D,x
-        eor keccak_state+0,x
-        sta keccak_state+0,x
-        lda keccak_D,x
-        eor keccak_state+40,x
-        sta keccak_state+40,x
-        lda keccak_D,x
-        eor keccak_state+80,x
-        sta keccak_state+80,x
-        lda keccak_D,x
-        eor keccak_state+120,x
-        sta keccak_state+120,x
-        lda keccak_D,x
-        eor keccak_state+160,x
-        sta keccak_state+160,x
-        inx
-        cpx #40
-        bne apply
-        rts
+        beq :+
+        jmp col_loop                ; body exceeds a branch displacement
+:       rts
 .endproc
 
 ; =============================================================================
