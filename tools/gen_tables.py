@@ -138,7 +138,12 @@ o("; Source of truth is tools/keccak_ref.py, pinned to XKCP's published tables\n
 o("; and 240 intermediate states by tools/test_keccak_ref.py.\n")
 o("; ============================================================================\n\n")
 
-o("; 24 round constants, 8 bytes each, little-endian lanes (192 B).\n")
+o("; 24 round constants, 8 bytes each, little-endian lanes (192 B). iota reads\n")
+o("; them through a zero-page pointer, (zp),y over one 8-byte entry, so no read\n")
+o("; ever crosses a page as long as the entries are 8-aligned: the .align 64\n")
+o("; (cfg align = $40, the same requirement src/codec.s already imposes) keeps\n")
+o("; the permutation's cycle count independent of where rodata lands.\n")
+o(".align 64\n")
 o("keccak_rc:\n")
 for r, v in enumerate(K.RC):
     b = ", ".join(f"${(v >> (8 * k)) & 0xFF:02X}" for k in range(8))
@@ -152,24 +157,36 @@ for r, v in enumerate(K.RC):
 # because 8s+b == 8(s+1) - (8-b). Taking whichever direction is shorter caps
 # the bit passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
 # Verified for all 25 lanes in tools/test_keccak_ref.py.
-rot_byte, rot_cnt, rot_dir = [], [], []
+rot_byte, rot_sc = [], []
 for i in range(25):
     s, b = K.RHO[i] >> 3, K.RHO[i] & 7
     if b <= 4:
-        rot_byte.append(s); rot_cnt.append(b); rot_dir.append(0)
+        rot_byte.append(s); rot_sc.append(b)                    # left, b passes
     else:
-        rot_byte.append((s + 1) & 7); rot_cnt.append(8 - b); rot_dir.append(1)
+        rot_byte.append((s + 1) & 7); rot_sc.append(0x80 | (8 - b))  # right, 8-b passes
+assert all(0 <= (v & 0x7F) <= 4 for v in rot_sc)
 
 o("\n; Fused rho+pi, indexed by SOURCE lane i = x + 5y.\n")
 o("; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)\n")
 o("; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute\n")
 o(";                  applied while copying the lane into its destination\n")
-o("; keccak_rot_cnt:  residual bit passes, 0..4\n")
-o("; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)\n")
-for name, vals in (("keccak_pi_dst",   [8 * dst[i] for i in range(25)]),
-                   ("keccak_rot_byte", rot_byte),
-                   ("keccak_rot_cnt",  rot_cnt),
-                   ("keccak_rot_dir",  rot_dir)):
+o("; keccak_rot_sc:   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate\n")
+o(";                  RIGHT (the short way round); 0 = no bit rotation\n")
+o(";\n")
+o("; Every table here is indexed abs,y by the lane number, so a table that\n")
+o("; straddled a page would add a cycle to some lanes and the permutation's\n")
+o("; cost would move with the link. They are grouped into two 64-aligned\n")
+o("; chunks (50 B, and 25 B + the 16 B copy_vec that src/keccak.s appends)\n")
+o("; that cannot straddle, and the .asserts turn a dropped cfg align into a\n")
+o("; failed link instead of a silently drifting cycle count.\n")
+def table(name, vals):
     o(f"{name}:\n")
     for row in range(5):
-        o("        .byte " + ", ".join(f"{vals[i]:3d}" for i in range(row * 5, row * 5 + 5)) + "\n")
+        o("        .byte " + ", ".join(f"${vals[i]:02X}" for i in range(row * 5, row * 5 + 5)) + "\n")
+o(".align 64\n")
+table("keccak_pi_dst",   [8 * dst[i] for i in range(25)])
+table("keccak_rot_byte", rot_byte)
+o(".assert >keccak_pi_dst = >(keccak_pi_dst + 49), lderror, \"keccak_pi_dst/rot_byte straddle a page: permutation cost would move with the link\"\n")
+o(".align 64\n")
+table("keccak_rot_sc",   rot_sc)
+o(".assert >keccak_rot_sc = >(keccak_rot_sc + 24), lderror, \"keccak_rot_sc straddles a page: permutation cost would move with the link\"\n")

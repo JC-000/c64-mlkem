@@ -6,7 +6,12 @@
 ; and 240 intermediate states by tools/test_keccak_ref.py.
 ; ============================================================================
 
-; 24 round constants, 8 bytes each, little-endian lanes (192 B).
+; 24 round constants, 8 bytes each, little-endian lanes (192 B). iota reads
+; them through a zero-page pointer, (zp),y over one 8-byte entry, so no read
+; ever crosses a page as long as the entries are 8-aligned: the .align 64
+; (cfg align = $40, the same requirement src/codec.s already imposes) keeps
+; the permutation's cycle count independent of where rodata lands.
+.align 64
 keccak_rc:
         .byte $01, $00, $00, $00, $00, $00, $00, $00   ; round  0
         .byte $82, $80, $00, $00, $00, $00, $00, $00   ; round  1
@@ -37,29 +42,34 @@ keccak_rc:
 ; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)
 ; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute
 ;                  applied while copying the lane into its destination
-; keccak_rot_cnt:  residual bit passes, 0..4
-; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)
+; keccak_rot_sc:   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate
+;                  RIGHT (the short way round); 0 = no bit rotation
+;
+; Every table here is indexed abs,y by the lane number, so a table that
+; straddled a page would add a cycle to some lanes and the permutation's
+; cost would move with the link. They are grouped into two 64-aligned
+; chunks (50 B, and 25 B + the 16 B copy_vec that src/keccak.s appends)
+; that cannot straddle, and the .asserts turn a dropped cfg align into a
+; failed link instead of a silently drifting cycle count.
+.align 64
 keccak_pi_dst:
-        .byte   0,  80, 160,  40, 120
-        .byte 128,   8,  88, 168,  48
-        .byte  56, 136,  16,  96, 176
-        .byte 184,  64, 144,  24, 104
-        .byte 112, 192,  72, 152,  32
+        .byte $00, $50, $A0, $28, $78
+        .byte $80, $08, $58, $A8, $30
+        .byte $38, $88, $10, $60, $B0
+        .byte $B8, $40, $90, $18, $68
+        .byte $70, $C0, $48, $98, $20
 keccak_rot_byte:
-        .byte   0,   0,   0,   3,   3
-        .byte   4,   5,   1,   7,   2
-        .byte   0,   1,   5,   3,   5
-        .byte   5,   6,   2,   3,   1
-        .byte   2,   0,   0,   7,   2
-keccak_rot_cnt:
-        .byte   0,   1,   2,   4,   3
-        .byte   4,   4,   2,   1,   4
-        .byte   3,   2,   3,   1,   1
-        .byte   1,   3,   1,   3,   0
-        .byte   2,   2,   3,   0,   2
-keccak_rot_dir:
-        .byte   0,   0,   1,   0,   0
-        .byte   0,   0,   1,   1,   0
-        .byte   0,   0,   0,   0,   1
-        .byte   0,   1,   1,   1,   0
-        .byte   0,   0,   1,   0,   1
+        .byte $00, $00, $00, $03, $03
+        .byte $04, $05, $01, $07, $02
+        .byte $00, $01, $05, $03, $05
+        .byte $05, $06, $02, $03, $01
+        .byte $02, $00, $00, $07, $02
+.assert >keccak_pi_dst = >(keccak_pi_dst + 49), lderror, "keccak_pi_dst/rot_byte straddle a page: permutation cost would move with the link"
+.align 64
+keccak_rot_sc:
+        .byte $00, $01, $82, $04, $03
+        .byte $04, $04, $82, $81, $04
+        .byte $03, $02, $03, $01, $81
+        .byte $01, $83, $81, $83, $00
+        .byte $02, $02, $83, $00, $82
+.assert >keccak_rot_sc = >(keccak_rot_sc + 24), lderror, "keccak_rot_sc straddles a page: permutation cost would move with the link"

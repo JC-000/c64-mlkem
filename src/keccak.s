@@ -63,10 +63,14 @@ kc_round   = mlkem_zp_len + 1      ; round counter 0..23
 
 .include "keccak_tables.inc"
 
-; Dispatch table for the eight byte-rotation copy variants.
+; Dispatch table for the eight byte-rotation copy variants. It follows
+; keccak_rot_sc (25 B, 64-aligned) directly, so the 41 B share one 64-byte
+; chunk and neither can straddle a page; the assert keeps it that way.
 copy_vec:
         .addr copy_s0, copy_s1, copy_s2, copy_s3
         .addr copy_s4, copy_s5, copy_s6, copy_s7
+.assert >copy_vec = >(copy_vec + 15), lderror, "copy_vec straddles a page: permutation cost would move with the link"
+.assert (keccak_rc .mod 8) = 0, lderror, "keccak_rc is not 8-aligned: an iota entry would straddle a page"
 
 .segment "LIB_MLKEM_BSS"
 
@@ -263,13 +267,12 @@ lane_loop:
 
 copy_done:
         ; --- residual bit rotation, in place at keccak_B + X ----------------
+        ; One packed byte per lane: count in bits 0-6, bit 7 = rotate right.
         ldy kc_lane
-        lda keccak_rot_cnt,y
+        lda keccak_rot_sc,y
         beq next_lane
+        bmi rot_right_entry
         sta kc_count
-        lda keccak_rot_dir,y
-        bne rot_right
-
 rot_left:
         lda keccak_B+7,x
         asl a                       ; C = bit 63
@@ -285,6 +288,9 @@ rot_left:
         bne rot_left
         beq next_lane               ; always taken
 
+rot_right_entry:
+        and #$7F
+        sta kc_count
 rot_right:
         lda keccak_B+0,x
         lsr a                       ; C = bit 0
@@ -388,21 +394,34 @@ byte_loop:
 
 ; =============================================================================
 ; iota:  A[0,0] ^= RC[round]
+;
+; The entry is read through a zero-page pointer rather than `abs,x`: an
+; (zp),y read only pays the page-cross cycle when the 8-byte entry itself
+; straddles a page, which the 8-alignment of keccak_rc rules out. That makes
+; the permutation's cycle count independent of where rodata lands (P1's
+; headline moved by 115-251 cycles between links before this). kc_count /
+; kc_lane are free during iota and are consecutive, so they serve as the
+; pointer without widening the library's ZP surface.
 ; =============================================================================
+kc_rcptr   = kc_count               ; 2 bytes: kc_count, kc_lane
+.assert kc_lane = kc_count + 1, error, "kc_rcptr needs kc_count and kc_lane consecutive"
 .proc keccak_iota
         lda kc_round
         asl a
         asl a
-        asl a                       ; 8 * round
-        tax
-        ldy #0
+        asl a                       ; 8 * round (< 256)
+        clc
+        adc #<keccak_rc
+        sta kc_rcptr+0
+        lda #>keccak_rc
+        adc #0
+        sta kc_rcptr+1
+        ldy #7
 :       lda keccak_state,y
-        eor keccak_rc,x
+        eor (kc_rcptr),y
         sta keccak_state,y
-        inx
-        iny
-        cpy #8
-        bne :-
+        dey
+        bpl :-
         rts
 .endproc
 
