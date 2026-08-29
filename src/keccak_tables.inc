@@ -38,38 +38,39 @@ keccak_rc:
         .byte $01, $00, $00, $80, $00, $00, $00, $00   ; round 22
         .byte $08, $80, $00, $80, $00, $00, $00, $80   ; round 23
 
-; Fused rho+pi, indexed by SOURCE lane i = x + 5y.
-; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)
-; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute
-;                  applied while copying the lane into its destination
-; keccak_rot_sc:   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate
-;                  RIGHT (the short way round); 0 = no bit rotation
-;
-; Every table here is indexed abs,y by the lane number, so a table that
-; straddled a page would add a cycle to some lanes and the permutation's
-; cost would move with the link. They are grouped into two 64-aligned
-; chunks (50 B, and 25 B + the 16 B copy_vec that src/keccak.s appends)
-; that cannot straddle, and the .asserts turn a dropped cfg align into a
-; failed link instead of a silently drifting cycle count.
-.align 64
-keccak_pi_dst:
-        .byte $00, $50, $A0, $28, $78
-        .byte $80, $08, $58, $A8, $30
-        .byte $38, $88, $10, $60, $B0
-        .byte $B8, $40, $90, $18, $68
-        .byte $70, $C0, $48, $98, $20
-keccak_rot_byte:
-        .byte $00, $00, $00, $03, $03
-        .byte $04, $05, $01, $07, $02
-        .byte $00, $01, $05, $03, $05
-        .byte $05, $06, $02, $03, $01
-        .byte $02, $00, $00, $07, $02
-.assert >keccak_pi_dst = >(keccak_pi_dst + 49), lderror, "keccak_pi_dst/rot_byte straddle a page: permutation cost would move with the link"
-.align 64
-keccak_rot_sc:
-        .byte $00, $01, $82, $04, $03
-        .byte $04, $04, $82, $81, $04
-        .byte $03, $02, $03, $01, $81
-        .byte $01, $83, $81, $83, $00
-        .byte $02, $02, $83, $00, $82
-.assert >keccak_rot_sc = >(keccak_rot_sc + 24), lderror, "keccak_rot_sc straddles a page: permutation cost would move with the link"
+; Fused rho+pi as a straight-line script, one KECCAK_LANE per SOURCE lane
+; i = x + 5y (the macro is defined in src/keccak.s, which expands this):
+;   KECCAK_LANE lane, dst, s, sc
+;     dst  destination BYTE offset in keccak_B (8 * destination lane)
+;     s    whole-byte rotation, applied as a byte permute while copying
+;     sc   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate RIGHT
+;          (the short way round); 0 = no bit rotation
+; Being immediates, none of this is table-read at run time, so the
+; permutation's cost cannot depend on where rodata lands.
+.macro KECCAK_RHOPI_SCRIPT
+        KECCAK_LANE  0, $00, 0, $00
+        KECCAK_LANE  1, $50, 0, $01
+        KECCAK_LANE  2, $A0, 0, $82
+        KECCAK_LANE  3, $28, 3, $04
+        KECCAK_LANE  4, $78, 3, $03
+        KECCAK_LANE  5, $80, 4, $04
+        KECCAK_LANE  6, $08, 5, $04
+        KECCAK_LANE  7, $58, 1, $82
+        KECCAK_LANE  8, $A8, 7, $81
+        KECCAK_LANE  9, $30, 2, $04
+        KECCAK_LANE 10, $38, 0, $03
+        KECCAK_LANE 11, $88, 1, $02
+        KECCAK_LANE 12, $10, 5, $03
+        KECCAK_LANE 13, $60, 3, $01
+        KECCAK_LANE 14, $B0, 5, $81
+        KECCAK_LANE 15, $B8, 5, $01
+        KECCAK_LANE 16, $40, 6, $83
+        KECCAK_LANE 17, $90, 2, $81
+        KECCAK_LANE 18, $18, 3, $83
+        KECCAK_LANE 19, $68, 1, $00
+        KECCAK_LANE 20, $70, 2, $02
+        KECCAK_LANE 21, $C0, 0, $02
+        KECCAK_LANE 22, $48, 0, $83
+        KECCAK_LANE 23, $98, 7, $00
+        KECCAK_LANE 24, $20, 2, $82
+.endmacro

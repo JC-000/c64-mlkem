@@ -67,7 +67,7 @@
 .ifdef MLKEM_KECCAK_ONLY
 LIB_MLKEM_RESIDENT_BYTES = 1792
 .else
-LIB_MLKEM_RESIDENT_BYTES = 7168
+LIB_MLKEM_RESIDENT_BYTES = 7424
 .endif
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).
