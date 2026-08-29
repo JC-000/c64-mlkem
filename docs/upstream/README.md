@@ -1,7 +1,25 @@
-# Upstream drafts for c64-lib-contract — NOT pushed, NOT opened
+# Upstream drafts for c64-lib-contract — OPENED 2026-08-29 (not merged)
 
 Drafted by WP5 on 2026-08-28 against contract head `c771935` (SPEC 0.13.0).
-The user opens PRs; these files are the text.
+Opened by P3 Lane B on 2026-08-29 against contract `origin/main` at `b45b212`
+(SPEC 0.14.1, tagged). These files remain the drafts; the PR text as opened
+was corrected against the shipped v0.5.0 numbers (`od65`/`ar65` on the built
+archives) and the v0.14.1 base.
+
+| PR | Branch | Classification | Version |
+|---|---|---|---|
+| [#156](https://github.com/JC-000/c64-lib-contract/pull/156) — adopters row (01 + 02) | `docs/adopters-c64-mlkem-v0.5.0` | PATCH, row-only, zero keywords in the diff | none |
+| [#157](https://github.com/JC-000/c64-lib-contract/pull/157) — §8.1 `-D` example `$`-free (03 part B) | `spec/8-1-sqtab-base-dollar-free` | PATCH, keyword counts unchanged | 0.14.2 |
+| [#158](https://github.com/JC-000/c64-lib-contract/pull/158) — §8.4 zero-consumer carve-out (03 part A) | `spec/8-4-precalc-bare-zero-consumer` | MINOR, +1 normative `SHOULD NOT` | 0.15.0 |
+
+Deviations from the drafts: 03-B's proposed "Values MUST be `$`-free"
+sentence was not added (it would duplicate §6.2's and move the count — the
+examples now reference §2/§6.2 instead); the v0.11.1 "unassessed" changelog
+line is left in place (v0.11.1 is tagged, the sentence was true at the tag;
+the row supersedes it); the contract README banner still says c64-mlkem
+v0.4.0 and is left for a currency PR of the #131 kind. #157 and #158 both
+bump the version against the same base — whichever merges second needs a
+trivial rebase.
 
 The split follows the #123 lesson (see `mem:contract_alignment`): a registry
 or status-row change is **PATCH, zero normative change**, and must not share
