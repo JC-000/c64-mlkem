@@ -49,3 +49,58 @@ tried and rejected, with its numbers, in the README "Where the cycles go".
 Lane A: per-lever before/after cycles and bytes, the final KeyGen / Encaps /
 Decaps numbers, footprint vs 7,680 B, and the list of levers rejected. Lane B:
 PR URLs, their classification (PATCH/MINOR) and `make verify` status.
+
+---
+
+## SESSION HANDOFF — 2026-09-01 (supervising session restart)
+
+State of the world for the next session. Verified, not assumed.
+
+### Done and public
+- **v0.5.0 tagged, pushed, released** (P2 complete); releases backfilled for
+  v0.2.0–v0.4.0, "Latest" badge on v0.5.0.
+- **Lane B done.** c64-lib-contract intake: #156 (adopters row) **merged**,
+  #157 (§8.1 `$`-free, → v0.14.2) **merged**, #158 (§8.4 bare-precalc
+  carve-out, → v0.15.0) **merged**. `docs/upstream/README.md` records them.
+- **Lane A done, awaiting merge.** `p3/optimisation` branch, PR
+  https://github.com/JC-000/c64-mlkem/pull/2 — **OPEN, user has not merged**.
+  v0.5.1: Keccak-f[1600] **339,688** (link-invariant), KeyGen 21,801,702,
+  Encaps 24,880,455, Decaps 29,597,879, keygen+decaps **51,399,581** (−17%),
+  7,208 B shipped (472 B under the window). Supervisor-verified on a clean
+  rebuild: `make test` OK, bench reproduces to the cycle, 45/45 mutants.
+
+### Immediately actionable, in order
+1. **PR #2**: the user merges (or requests changes). After merge: tag
+   `v0.5.1` (annotated, style of `git tag -n` v0.5.0), push tag, `gh release
+   create` from the tag message, `--latest`.
+2. **Contract drift**: SPEC at origin is **0.17.1 (2026-08-31)** — FOUR
+   releases past the 0.13.0 the P2 conformance work targeted (0.14.x–0.17.x
+   landed in three days; #157/#158 are inside that run). Nobody has assessed
+   0.15.0→0.17.1 against this repo. Diff §12 changelog from 0.14.1 up and
+   re-run the WP5-style clause-verdict pass (`docs/contract-p2-alignment.md`
+   is the model). Watch specifically for anything touching §8.1/§8.4 (our
+   PRs may have been amended in later releases) and any new §14.
+3. **Adopters row** upstream cites v0.5.0 numbers; after v0.5.1 tags, a
+   row-refresh PR (PATCH, row-only) with the new RESIDENT (7424) and cycles.
+
+### Deferred by explicit user decision (do NOT start unprompted)
+- **Fit**: c64-https `CRYPTO_OVERLAY` has only ~2.5 KB actually free vs our
+  7,208 B. Split-vs-replan is a joint P4 decision with c64-https.
+- **Hardware validation** (`rig_*.py`, none exist yet): U64E is tied up with
+  firmware testing. When free: cycle counts should reproduce at 1 MHz; check
+  turbo behaviour even though this library has no REU/device I/O.
+
+### Repo mechanics the next session must know
+- **PRs are now the convention for c64-mlkem** (user asked for a PR record;
+  P1/P2 went direct-to-main, P3 onward does not).
+- 11 git worktrees under `.claude/worktrees/` — all merged, safe to
+  `git worktree remove` + prune; user was told, hasn't asked.
+- The P2/P3 protocol that the user explicitly wants kept (see
+  `HANDOFF-P2.md`): red tests by a separate agent from the spec; implementer
+  may not edit tests; adversarial mutation gate (45 mutants, `make
+  test-mutants`) before merge; `wp2-rodata-align-reverted` must be re-picked
+  after ANY code-size change (layout-dependent by construction, documented in
+  tools/mutants/README.md); NEVER run two VICE-driven make targets
+  concurrently; oracle red ⇒ everything downstream meaningless.
+- Session memory (decisions + open items) also lives in the Claude memory
+  dir: `p2-plan-decisions.md` there mirrors this section.
