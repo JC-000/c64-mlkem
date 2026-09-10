@@ -276,7 +276,7 @@ def main():
     lo, hi = 40_000_000, 70_000_000
     where = "INSIDE" if lo <= kd_c <= hi else "OUTSIDE"
     print(f"  roadmap budget {lo // 1_000_000}-{hi // 1_000_000}M for keygen+decaps: measurement falls {where}")
-    print(f"  keccak_f1600 in this link: {kf:,} cycles (P1 headline 456,605; rodata placement shifts it)")
+    print(f"  keccak_f1600 in this link: {kf:,} cycles (v0.5.1 headline 339,688, link-invariant; P1 was 456,605)")
     print(f"  ntt {ntt:,}  intt {intt:,}  basemul {bm:,}")
     return 0
 

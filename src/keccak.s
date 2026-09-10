@@ -25,10 +25,13 @@
 ; long, so every `abs,X` access below stays inside one page — no +1-cycle page
 ; -cross penalty, and the cost does not depend on which lane is touched.
 ;
-; SIZE/SPEED: this is the compact form the P1 brief asks for first. The round
-; constants are a 192-byte table rather than being generated on the fly (which
-; would save ~150 B); unrolling and the RC-generator trade-off are deliberately
-; left as MEASURED decisions, not defaults. See README.
+; SIZE/SPEED: P1 shipped the compact, table-driven form (1,477 B, 456,605
+; cycles). P3 (v0.5.1) spent 470 B of unrolling where measurement said the
+; bookkeeping was — theta's three passes fused into one column loop, the
+; rho+pi lane loop replaced by a generated straight-line script, the rotation
+; passes unrolled into ladders, iota's RC read through a pointer — for
+; 339,688 cycles, link-invariant. The round constants stay a 192-byte table
+; (an LFSR generator would save ~40 B net). Every step is measured in README.
 ; =============================================================================
 
 .include "constants.s"
@@ -54,8 +57,8 @@
 .import keccak_state
 
 ; --- zero-page aliases (within the 8 bytes declared in zp_config.s) ---------
-kc_count   = mlkem_zp_tmp + 0      ; byte counter inside a lane
-kc_lane    = mlkem_zp_tmp + 1      ; source lane index 0..24
+kc_count   = mlkem_zp_tmp + 0      ; iota: RC pointer lo (P1 used it as the rotation pass counter)
+kc_lane    = mlkem_zp_tmp + 1      ; iota: RC pointer hi (P1 used it as the lane counter)
 kc_rowbase = mlkem_zp_len + 0      ; chi row base: 0, 40, 80, 120, 160
 kc_round   = mlkem_zp_len + 1      ; round counter 0..23
 
@@ -63,10 +66,7 @@ kc_round   = mlkem_zp_len + 1      ; round counter 0..23
 
 .include "keccak_tables.inc"
 
-; Dispatch table for the eight byte-rotation copy variants.
-copy_vec:
-        .addr copy_s0, copy_s1, copy_s2, copy_s3
-        .addr copy_s4, copy_s5, copy_s6, copy_s7
+.assert (keccak_rc .mod 8) = 0, lderror, "keccak_rc is not 8-aligned: an iota entry would straddle a page"
 
 .segment "LIB_MLKEM_BSS"
 
@@ -77,21 +77,15 @@ copy_vec:
 ; buffers come first; the odd bytes go at the end where they are free.
 .align 256
 keccak_B:       .res 200           ; rho+pi destination; page-aligned
-keccak_C:       .res 40            ; theta column parities
-keccak_rot:     .res 40            ; ROTL64(C[x], 1)
-keccak_D:       .res 40            ; theta D[x]
+; theta's column parities with a one-lane mirror on each side:
+;     [C4'] [C0 C1 C2 C3 C4] [C0']
+; so that C[col-1] and C[col+1] are fixed displacements from C[col] for every
+; column, no mod-40 wrap. 56 B, which is exactly the tail of keccak_B's page:
+; every theta access stays inside that page, so none pays a crossing cycle.
+keccak_Cx:      .res 56
+keccak_C        = keccak_Cx + 8
+.assert >keccak_B = >(keccak_Cx + 55), lderror, "keccak_Cx leaves keccak_B's page: theta cost would move with the layout"
 keccak_tmp:     .res 8             ; one lane of scratch
-
-; kc_dst / kc_jmp live in BSS rather than zero page so the library's declared
-; ZP surface stays at the 8 bytes in zp_config.s.
-kc_dst:         .res 1             ; destination byte offset for this lane
-kc_jmp:         .res 2             ; indirect vector for the copy dispatch
-
-; The 6502's `jmp (abs)` fetches the high byte from the SAME page as the low
-; one, so a vector whose low byte is $FF reads its high byte from the start of
-; that page instead of the next. Placement here makes that impossible, and the
-; assert keeps it impossible if the layout above ever changes.
-.assert (kc_jmp .mod 256) <> $FF, lderror, "kc_jmp straddles a page: jmp (abs) would fetch the wrong high byte"
 
 .segment "LIB_MLKEM_CODE"
 
@@ -120,92 +114,76 @@ kc_jmp:         .res 2             ; indirect vector for the copy dispatch
 ; Byte offsets: lane (x,y) is at 40y + 8x, so a column's five lanes sit exactly
 ; 40 bytes apart — which is why the C loop below is one flat 40-iteration pass
 ; rather than a nested one.
+;
+; D is never stored. After C is mirrored (C[-1] = C[4], C[5] = C[0]) the
+; column loop walks X = 8*col and, per byte, rotates C[col+1] left by one
+; (the rol carry chain runs down the lane; eor/tay/sta leave C alone), XORs
+; C[col-1], parks the D byte in Y and applies it to the five rows straight
+; away. That fuses P1's three passes (rot 535 + D 2,000 + apply 2,880
+; cycles/round) into one of ~2,700 (P3 lever 3; measured in README).
 ; =============================================================================
 .proc keccak_theta
         ; --- C[k] = XOR of the five rows, k = 0..39 ------------------------
-        ldx #0
+        ; Four bytes per iteration, X = 36, 32, .. 0 (bpl exits on $FC): the
+        ; loop overhead is 11 cycles per 4 bytes instead of 7 per byte.
+        ldx #36
 c_loop:
-        lda keccak_state+0,x
-        eor keccak_state+40,x
-        eor keccak_state+80,x
-        eor keccak_state+120,x
-        eor keccak_state+160,x
-        sta keccak_C,x
-        inx
-        cpx #40
-        bne c_loop
+        .repeat 4, i
+        lda keccak_state+0+i,x
+        eor keccak_state+40+i,x
+        eor keccak_state+80+i,x
+        eor keccak_state+120+i,x
+        eor keccak_state+160+i,x
+        sta keccak_C+i,x
+        .endrepeat
+        dex
+        dex
+        dex
+        dex
+        bpl c_loop
 
-        ; --- rot[x] = ROTL64(C[x], 1), five lanes --------------------------
-        ; 64-bit rotate-left-by-1 on a little-endian lane: seed the carry with
-        ; bit 63 (top bit of byte 7), then rol bytes 0..7 in ascending order.
+        ; --- mirror: C[-1] = C[4], C[5] = C[0] ------------------------------
+        ldx #7
+:       lda keccak_C+32,x
+        sta keccak_C-8,x
+        lda keccak_C+0,x
+        sta keccak_C+40,x
+        dex
+        bpl :-
+
+        ; --- per column: D = C[col-1] ^ ROTL64(C[col+1], 1); A[col,*] ^= D --
         ldx #0
-rot_loop:
-        lda keccak_C+7,x
-        asl a                       ; C = old bit 63
+col_loop:
+        lda keccak_C+8+7,x
+        asl a                       ; C = bit 63 of C[col+1]
         .repeat 8, i
-        lda keccak_C+i,x
-        rol a                       ; lda does not disturb the carry
-        sta keccak_rot+i,x
+        lda keccak_C+8+i,x
+        rol a                       ; carry chains from the previous byte
+        eor keccak_C-8+i,x          ; A = D[col] byte i
+        tay
+        eor keccak_state+0+i,x
+        sta keccak_state+0+i,x
+        tya
+        eor keccak_state+40+i,x
+        sta keccak_state+40+i,x
+        tya
+        eor keccak_state+80+i,x
+        sta keccak_state+80+i,x
+        tya
+        eor keccak_state+120+i,x
+        sta keccak_state+120+i,x
+        tya
+        eor keccak_state+160+i,x
+        sta keccak_state+160+i,x
         .endrepeat
         txa
         clc
         adc #8
         tax
         cpx #40
-        bne rot_loop
-
-        ; --- D[k] = C[(k+32) mod 40] ^ rot[(k+8) mod 40], k = 0..39 --------
-        ; For k = 8*col + j, (k+32) mod 40 selects column (col+4) mod 5 and
-        ; (k+8) mod 40 selects column (col+1) mod 5 — both at the same byte j.
-        ldx #0
-d_loop:
-        txa
-        clc
-        adc #32
-        cmp #40
-        bcc :+
-        sbc #40
-:       tay
-        lda keccak_C,y
-        sta kc_count                ; stash C[(k+32) mod 40]
-        txa
-        clc
-        adc #8
-        cmp #40
-        bcc :+
-        sbc #40
-:       tay
-        lda keccak_rot,y
-        eor kc_count
-        sta keccak_D,x
-        inx
-        cpx #40
-        bne d_loop
-
-        ; --- A[i] ^= D[i mod 40] for all 200 bytes --------------------------
-        ; Unrolled over the five rows so the D index is just X, with no
-        ; separate wrapping counter.
-        ldx #0
-apply:
-        lda keccak_D,x
-        eor keccak_state+0,x
-        sta keccak_state+0,x
-        lda keccak_D,x
-        eor keccak_state+40,x
-        sta keccak_state+40,x
-        lda keccak_D,x
-        eor keccak_state+80,x
-        sta keccak_state+80,x
-        lda keccak_D,x
-        eor keccak_state+120,x
-        sta keccak_state+120,x
-        lda keccak_D,x
-        eor keccak_state+160,x
-        sta keccak_state+160,x
-        inx
-        cpx #40
-        bne apply
-        rts
+        beq :+
+        jmp col_loop                ; body exceeds a branch displacement
+:       rts
 .endproc
 
 ; =============================================================================
@@ -225,52 +203,44 @@ apply:
 ;     byte-rotation of s+1 followed by a rotate RIGHT of 8-b, since
 ;     8s+b == 8(s+1)-(8-b). Taking whichever direction is shorter caps the bit
 ;     passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
-;     keccak_rot_dir says which way; the decomposition is verified for all 25
-;     lanes in tools/test_keccak_ref.py.
+;     The decomposition is verified for all 25 lanes in tools/test_keccak_ref.py.
 ;
-; The eight possible byte-rotations are unrolled as eight straight-line copy
-; routines reached through a jump table, which removes the per-byte index
-; bookkeeping (`tya`/`and #7`/`tay`) that dominated the previous version.
+; And one from P3 (levers 4 and 5b): THE LANE LOOP IS A GENERATED SCRIPT.
+; P1 walked a lane counter through four 25-entry tables and a jump vector,
+; ~80 cycles of bookkeeping per lane. The 25 lanes are now straight-line
+; KECCAK_LANE expansions (src/keccak_tables.inc, from the validated model):
+; every parameter is an immediate, the copy variant is a plain `jsr`, and
+; the bit rotation is a `jsr` straight to the entry for that lane's pass
+; count in an unrolled pass ladder (rot_left4 falls into rot_left3 ... into
+; the rts), so there is no dispatch and no pass counter. No table is read,
+; so nothing here can straddle a page. 7 or 10 bytes per lane.
 ;
-; Register discipline through the whole lane body:
-;     X = destination byte offset in keccak_B  (held across copy AND rotate)
+; Register discipline through one lane:
 ;     Y = 8 * source lane                      (copy only)
+;     X = destination byte offset in keccak_B  (held across copy AND rotate)
 ; =============================================================================
+.macro KECCAK_LANE lane, dst, s, sc
+        ldy #8 * lane
+        ldx #dst
+        jsr .ident(.sprintf("copy_s%d", s))
+    .if (sc & $7F) > 0
+        .if sc & $80
+        jsr .ident(.sprintf("rot_right%d", sc & $7F))
+        .else
+        jsr .ident(.sprintf("rot_left%d", sc & $7F))
+        .endif
+    .endif
+.endmacro
+
 .proc keccak_rhopi
-        lda #0
-        sta kc_lane
-lane_loop:
-        ldy kc_lane
-        lda keccak_pi_dst,y
-        sta kc_dst
+        KECCAK_RHOPI_SCRIPT
+        rts
+.endproc
 
-        ; Select the copy variant for this lane's whole-byte rotation.
-        lda keccak_rot_byte,y
-        asl a
-        tay
-        lda copy_vec+0,y
-        sta kc_jmp+0
-        lda copy_vec+1,y
-        sta kc_jmp+1
-
-        lda kc_lane
-        asl a
-        asl a
-        asl a
-        tay                         ; Y = 8 * lane (source)
-        ldx kc_dst                  ; X = destination offset, held from here on
-        jmp (kc_jmp)
-
-copy_done:
-        ; --- residual bit rotation, in place at keccak_B + X ----------------
-        ldy kc_lane
-        lda keccak_rot_cnt,y
-        beq next_lane
-        sta kc_count
-        lda keccak_rot_dir,y
-        bne rot_right
-
-rot_left:
+; --- the rotation pass ladders, in place at keccak_B + X -------------------
+; rot_leftN / rot_rightN rotate the lane by N bits (N = 1..4): each entry is
+; one pass that falls through into the next-lower entry and finally the rts.
+.macro ROT_LEFT_PASS
         lda keccak_B+7,x
         asl a                       ; C = bit 63
         rol keccak_B+0,x
@@ -281,11 +251,8 @@ rot_left:
         rol keccak_B+5,x
         rol keccak_B+6,x
         rol keccak_B+7,x
-        dec kc_count
-        bne rot_left
-        beq next_lane               ; always taken
-
-rot_right:
+.endmacro
+.macro ROT_RIGHT_PASS
         lda keccak_B+0,x
         lsr a                       ; C = bit 0
         ror keccak_B+7,x
@@ -296,17 +263,18 @@ rot_right:
         ror keccak_B+2,x
         ror keccak_B+1,x
         ror keccak_B+0,x
-        dec kc_count
-        bne rot_right
+.endmacro
 
-next_lane:
-        inc kc_lane
-        lda kc_lane
-        cmp #25
-        beq :+
-        jmp lane_loop               ; body exceeds a branch displacement
-:       rts
-.endproc
+rot_left4:  ROT_LEFT_PASS
+rot_left3:  ROT_LEFT_PASS
+rot_left2:  ROT_LEFT_PASS
+rot_left1:  ROT_LEFT_PASS
+        rts
+rot_right4: ROT_RIGHT_PASS
+rot_right3: ROT_RIGHT_PASS
+rot_right2: ROT_RIGHT_PASS
+rot_right1: ROT_RIGHT_PASS
+        rts
 
 ; --- the eight byte-rotation copy variants ---------------------------------
 ; Each writes all 8 source bytes to their rotated destination positions:
@@ -317,7 +285,7 @@ next_lane:
         lda keccak_state+j,y
         sta keccak_B+((j+s) & 7),x
     .endrepeat
-        jmp keccak_rhopi::copy_done
+        rts
 .endmacro
 
 copy_s0: COPY_VARIANT 0
@@ -388,21 +356,34 @@ byte_loop:
 
 ; =============================================================================
 ; iota:  A[0,0] ^= RC[round]
+;
+; The entry is read through a zero-page pointer rather than `abs,x`: an
+; (zp),y read only pays the page-cross cycle when the 8-byte entry itself
+; straddles a page, which the 8-alignment of keccak_rc rules out. That makes
+; the permutation's cycle count independent of where rodata lands (P1's
+; headline moved by 115-251 cycles between links before this). kc_count /
+; kc_lane are free during iota and are consecutive, so they serve as the
+; pointer without widening the library's ZP surface.
 ; =============================================================================
+kc_rcptr   = kc_count               ; 2 bytes: kc_count, kc_lane
+.assert kc_lane = kc_count + 1, error, "kc_rcptr needs kc_count and kc_lane consecutive"
 .proc keccak_iota
         lda kc_round
         asl a
         asl a
-        asl a                       ; 8 * round
-        tax
-        ldy #0
+        asl a                       ; 8 * round (< 256)
+        clc
+        adc #<keccak_rc
+        sta kc_rcptr+0
+        lda #>keccak_rc
+        adc #0
+        sta kc_rcptr+1
+        ldy #7
 :       lda keccak_state,y
-        eor keccak_rc,x
+        eor (kc_rcptr),y
         sta keccak_state,y
-        inx
-        iny
-        cpy #8
-        bne :-
+        dey
+        bpl :-
         rts
 .endproc
 

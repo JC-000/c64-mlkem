@@ -53,7 +53,7 @@
 
 LIB_MLKEM_VERSION_MAJOR = 0
 LIB_MLKEM_VERSION_MINOR = 5
-LIB_MLKEM_VERSION_PATCH = 0
+LIB_MLKEM_VERSION_PATCH = 1
 LIB_MLKEM_ABI_VERSION   = 2
 
 ; `: abs` is required, not decorative. These values fit in a byte, so ca65

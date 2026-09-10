@@ -1,16 +1,17 @@
---- a/src/codec.s
-+++ b/src/codec.s
-@@ -99,8 +99,7 @@
+--- a/src/codec.s	2026-08-29 05:57:17
++++ b/src/codec.s	2026-08-29 06:32:35
+@@ -99,8 +99,8 @@
  ; T_hi_d[h] = floor(h * 256 * 2^d / q), h = 0..13 (x < q => x >> 8 <= 13).
  ; All three d share one lo-byte table and one hi-byte table, indexed by
  ; 14 * d_index + h. Computed by the assembler from the definition.
 -.align 64                ; WP1 merge fix: keep the straddle assert below layout-independent (cfg align = $40)
 -cp_thi_lo:
++.res 192                 ; MUTANT: layout-tuned pad so a table straddles under the current link (see README)
 +cp_thi_lo:                ; MUTANT: .align 64 dropped
  .repeat 14, h
          .byte <((h * 256 * 2) / MLKEM_Q)
  .endrepeat
-@@ -110,8 +109,7 @@
+@@ -110,8 +110,7 @@
  .repeat 14, h
          .byte <((h * 256 * 1024) / MLKEM_Q)
  .endrepeat
@@ -20,7 +21,7 @@
  .repeat 14, h
          .byte >((h * 256 * 2) / MLKEM_Q)
  .endrepeat
-@@ -123,8 +121,7 @@
+@@ -123,8 +122,7 @@
  .endrepeat
  
  ; T_lo[m] = floor(m * 4 * 1024 / q), m = 0..63 (d = 10; max 77 fits a byte).

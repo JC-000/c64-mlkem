@@ -48,6 +48,7 @@ def emit_mlkem(o):
     o(f"MLKEM_Q_HI       = ${Q >> 8:02X}\n")
     o(f"MLKEM_NEG_Q16    = ${(-Q) & 0xFFFF:04X}       ; -q mod 2^16, for a 16-bit add-based reduce\n")
     o(f"MLKEM_N_INV      = {M.N_INV:5d}        ; 128^-1 mod q, the INTT scaling (Alg. 10)\n")
+    o(f"MLKEM_N_INV_Z1   = {(M.ZETAS[1] * M.N_INV) % Q:5d}        ; zetas[1] * 128^-1 mod q: the last INTT layer's block constant with the scaling folded in\n")
     o(f"MLKEM_BARRETT_26 = {(1 << 26) // Q:5d}        ; floor(2^26 / q), Barrett multiplier for 16-bit inputs\n")
     o(f"MLKEM_QINV_16    = {qinv:5d}        ; q^-1 mod 2^16 (Montgomery, R = 2^16)\n")
     o(f"MLKEM_NEG_QINV16 = {(-qinv) % R:5d}        ; -q^-1 mod 2^16\n")
@@ -137,7 +138,12 @@ o("; Source of truth is tools/keccak_ref.py, pinned to XKCP's published tables\n
 o("; and 240 intermediate states by tools/test_keccak_ref.py.\n")
 o("; ============================================================================\n\n")
 
-o("; 24 round constants, 8 bytes each, little-endian lanes (192 B).\n")
+o("; 24 round constants, 8 bytes each, little-endian lanes (192 B). iota reads\n")
+o("; them through a zero-page pointer, (zp),y over one 8-byte entry, so no read\n")
+o("; ever crosses a page as long as the entries are 8-aligned: the .align 64\n")
+o("; (cfg align = $40, the same requirement src/codec.s already imposes) keeps\n")
+o("; the permutation's cycle count independent of where rodata lands.\n")
+o(".align 64\n")
 o("keccak_rc:\n")
 for r, v in enumerate(K.RC):
     b = ", ".join(f"${(v >> (8 * k)) & 0xFF:02X}" for k in range(8))
@@ -151,24 +157,25 @@ for r, v in enumerate(K.RC):
 # because 8s+b == 8(s+1) - (8-b). Taking whichever direction is shorter caps
 # the bit passes at 4 instead of 7 and cuts the per-round total from 88 to 52.
 # Verified for all 25 lanes in tools/test_keccak_ref.py.
-rot_byte, rot_cnt, rot_dir = [], [], []
+rot_byte, rot_sc = [], []
 for i in range(25):
     s, b = K.RHO[i] >> 3, K.RHO[i] & 7
     if b <= 4:
-        rot_byte.append(s); rot_cnt.append(b); rot_dir.append(0)
+        rot_byte.append(s); rot_sc.append(b)                    # left, b passes
     else:
-        rot_byte.append((s + 1) & 7); rot_cnt.append(8 - b); rot_dir.append(1)
+        rot_byte.append((s + 1) & 7); rot_sc.append(0x80 | (8 - b))  # right, 8-b passes
+assert all(0 <= (v & 0x7F) <= 4 for v in rot_sc)
 
-o("\n; Fused rho+pi, indexed by SOURCE lane i = x + 5y.\n")
-o("; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)\n")
-o("; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute\n")
-o(";                  applied while copying the lane into its destination\n")
-o("; keccak_rot_cnt:  residual bit passes, 0..4\n")
-o("; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)\n")
-for name, vals in (("keccak_pi_dst",   [8 * dst[i] for i in range(25)]),
-                   ("keccak_rot_byte", rot_byte),
-                   ("keccak_rot_cnt",  rot_cnt),
-                   ("keccak_rot_dir",  rot_dir)):
-    o(f"{name}:\n")
-    for row in range(5):
-        o("        .byte " + ", ".join(f"{vals[i]:3d}" for i in range(row * 5, row * 5 + 5)) + "\n")
+o("\n; Fused rho+pi as a straight-line script, one KECCAK_LANE per SOURCE lane\n")
+o("; i = x + 5y (the macro is defined in src/keccak.s, which expands this):\n")
+o(";   KECCAK_LANE lane, dst, s, sc\n")
+o(";     dst  destination BYTE offset in keccak_B (8 * destination lane)\n")
+o(";     s    whole-byte rotation, applied as a byte permute while copying\n")
+o(";     sc   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate RIGHT\n")
+o(";          (the short way round); 0 = no bit rotation\n")
+o("; Being immediates, none of this is table-read at run time, so the\n")
+o("; permutation's cost cannot depend on where rodata lands.\n")
+o(".macro KECCAK_RHOPI_SCRIPT\n")
+for i in range(25):
+    o(f"        KECCAK_LANE {i:2d}, ${8 * dst[i]:02X}, {rot_byte[i]}, ${rot_sc[i]:02X}\n")
+o(".endmacro\n")

@@ -1,9 +1,9 @@
---- a/src/ntt.s	2026-08-28 18:12:59
-+++ b/src/ntt.s	2026-08-28 18:12:59
-@@ -731,7 +731,7 @@
-         asl nt_len                      ; 2 .. 128, then 0: done
-         bne pi_layer
-         ; scale every coefficient by 128^-1 (a public block constant)
+--- a/src/ntt.s	2026-08-29 06:05:07
++++ b/src/ntt.s	2026-08-29 06:05:17
+@@ -751,7 +751,7 @@
+         sta nt_savex
+         jsr itl_block_ready
+         ; scale the lower half f[0..127] by 128^-1 (a public block constant)
 -        lda #<MLKEM_N_INV
 +        lda #<(MLKEM_N_INV - 1)
          sta fq_b_lo

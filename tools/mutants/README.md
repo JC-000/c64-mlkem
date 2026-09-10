@@ -85,7 +85,7 @@ green source.
 | `wp2-sample-ntt-block-short` | *extra*: block consumed as 55 triples (`cpx #SHAKE128_RATE-3`), the last triple of every 168 B block skipped | `mlkem_sample_ntt [needs 4 blocks (510 B > 504) ...]: index 83` |
 | `wp2-decode-reduces-mod-q` | *extra*: Alg. 6 literal `mod q` on a decoded field — violates the raw pass-through pin WP3's explicit `< q` ek check relies on | `mlkem_byte_decode_12 [all fields 0xFFF (>= q, raw)]: index 0: got 766 want 4095` |
 | `wp2-compress-stale-hi` | *extra*: high plane of the compressed poly never written (same-size `nop` replacement) | `mlkem_compress_1 [boundaries 0..]: index 0: got 60928 want 0` |
-| `wp2-rodata-align-reverted` | *extra*, `"expect_build_fail": true`: all three `.align 64` before the compress tables removed (the WP1 merge fix reverted) | build fails at LINK: `straddles a page: compress cost would depend on secret data` |
+| `wp2-rodata-align-reverted` | *extra*, `"expect_build_fail": true`: all three `.align 64` before the compress tables removed (the WP1 merge fix reverted), plus a **layout-tuned** `.res 128` pad (P3: the +31 B of lever 1 moved `LIB_MLKEM_RODATA` from `$1FC0` to `$2000` and the bare tables happened to fit; see below) | build fails at LINK: `straddles a page: compress cost would depend on secret data` |
 
 ### Alignment mutants and `expect_build_fail`
 
@@ -101,6 +101,18 @@ for another reason as `non-local-kill`, and a build that succeeds as
 `survived`. Without that flag a failed build is always reported as a stale
 patch.
 
+
+**The pad is tuned to the link, and must be re-tuned when the code size
+moves.** The three bare tables are one contiguous 148 B span whose page
+offset takes one of four values 64 B apart (the segment start is the code
+end rounded up to `$40`); one of the four always fits inside a page, so no
+pad makes the straddle deterministic across layouts. P3's lever 1 (+31 B)
+moved the span from a straddling phase to a fitting one and the mutant
+survived; the pad (re-picked after every lever since) shifts it back to a straddling phase for the
+current link. Whenever `make test-mutants` reports this one as survived
+after a code-size change, re-pick the pad (0 / 64 / 128 / 192) from
+`build/mutants/wp2-rodata-align-reverted/build/labels.txt` — it is the
+gate's layout dependence, not a suite gap.
 
 Two layout facts bit while writing these and will bite again: the
 secret-indexed tables carry page-straddle `.assert`s, so a patch that

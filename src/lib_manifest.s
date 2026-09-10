@@ -34,40 +34,40 @@
 ; (`make check-manifest`, which links the ARCHIVE into a probe image and
 ; FAILS if a value is below measured in either configuration).
 ;
-; P2 measurement (v0.5.0) — the shipped mlkem.a configuration, no test hooks:
-;   LIB_MLKEM_CODE   5694 B   (888 Keccak-f + 281 sponge + 84 sqtab init +
-;                              1598 NTT/field + 221 samplers + 681 codecs +
+; P3 measurement (v0.5.1) — the shipped mlkem.a configuration, no test hooks:
+;   LIB_MLKEM_CODE   6311 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
+;                              1629 NTT/field + 221 samplers + 681 codecs +
 ;                              1941 K-PKE/ML-KEM)
-;   LIB_MLKEM_RODATA 1025 B   (308 Keccak + 407 zetas/NTT + 32 CBD +
-;                              256 compress tables incl. 21 B align pad + 1)
+;   LIB_MLKEM_RODATA  897 B   (192 Keccak RC + 407 zetas/NTT + 32 CBD +
+;                              256 compress tables + 1 + 9 B align pad)
 ;   ------------------------
-;   resident         6719 B   -> declared 6912 (next 256-B boundary)
-; The standalone test PRG (-D MLKEM_TEST_HOOKS=1) measures 6892 B, +173 B of
-; per-layer / K-PKE hook entry points; 6912 covers both. 87.5% of the 7,680 B
+;   resident         7208 B   -> declared 7424 (next 256-B boundary)
+; The standalone test PRG (-D MLKEM_TEST_HOOKS=1) measures 7381 B, +173 B of
+; per-layer / K-PKE hook entry points; 7424 covers both. 93.9% of the 7,680 B
 ; c64-https CRYPTO_OVERLAY window (README: what is actually free in it is a
-; P4 question).
+; P4 question). v0.5.0 was 6719 B (5694 + 1025), declared 6912.
 ;
-; P1 (Keccak only, the mlkem-keccak.a configuration): 1169 code + 308 rodata
-; = 1477 B -> declared 1536. Unchanged since v0.3.0.
+; P1 (Keccak only, the mlkem-keccak.a configuration): 1755 code + 192 rodata
+; = 1947 B -> declared 2048 (v0.3.0-v0.5.0: 1477 B, declared 1536).
 ;
-; LIB_MLKEM_BSS is 6641 B in the full link (594 Keccak/sponge; 1042 NTT R
+; LIB_MLKEM_BSS is 6641 B in the full link (527 Keccak/sponge; 1042 NTT R
 ; tables + scratch; 4 sqtab init; 203 samplers/codecs; 4632 K-PKE incl. eight
 ; page-aligned polynomials; the rest is page-alignment fill). BSS is not a
 ; footprint equate; consumers size it from the segment itself. The wire
 ; buffers ek/dk/ct (1,184 + 2,400 + 1,088 B) are the CALLER's and are NOT in
-; it. Keccak-only: 594 B.
+; it. Keccak-only: 527 B.
 ; =============================================================================
 
 ; --- §5 required four ---------------------------------------------------
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
-; Per archive (§6.6): the Keccak-only member set is 1477 B measured, the full
-; set 6719 B. Both are literal decimals so tools/check_manifest.py can read
+; Per archive (§6.6): the Keccak-only member set is 1947 B measured, the full
+; set 7208 B. Both are literal decimals so tools/check_manifest.py can read
 ; them without evaluating expressions.
 .ifdef MLKEM_KECCAK_ONLY
-LIB_MLKEM_RESIDENT_BYTES = 1536
+LIB_MLKEM_RESIDENT_BYTES = 2048
 .else
-LIB_MLKEM_RESIDENT_BYTES = 6912
+LIB_MLKEM_RESIDENT_BYTES = 7424
 .endif
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).

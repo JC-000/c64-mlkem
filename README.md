@@ -14,7 +14,7 @@ hybrid `X25519MLKEM768` (0x11EC) key exchange for
 
 ---
 
-## Status: Phase 2 complete (v0.5.0)
+## Status: Phase 2 complete, P3 optimisation pass landed (v0.5.1)
 
 The work is phased. **Phase 1 was Keccak only** — the SHA-3 family ML-KEM is
 built on; **Phase 2 is everything else** in FIPS 203:
@@ -22,7 +22,7 @@ built on; **Phase 2 is everything else** in FIPS 203:
 | Phase | Scope | State |
 |---|---|---|
 | **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
-| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 45/45 mutants killed; measured at 61.9M cycles keygen+decaps |
+| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 45/45 mutants killed; measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
 P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
@@ -37,7 +37,8 @@ by a measurement, and **it did not survive** — see below.
 | [`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) | 600,771 | — | 1,034 B | Functional baseline. Correct and complete, deliberately unoptimised — kept as the historical reference point. |
 | [`v0.3.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.3.0) | **456,605** | — | 1,477 B | rho+pi optimised: −24.0% cycles for +402 B. |
 | [`v0.4.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.4.0) | 456,605 | — | 1,477 B | Contract v0.11.0: bare version exports dropped (ABI 2), prefixed member basenames, §6.3 staleness guard. |
-| **v0.5.0** | 456,720 ¹ | **61,928,289** | **6,719 B** | **ML-KEM-768 complete.** KeyGen 26.8M, Encaps 30.2M, Decaps 35.1M cycles; 87.5% of the 7,680 B window; ABI unchanged (additive). |
+| v0.5.0 | 456,720 ¹ | 61,928,289 | 6,719 B | **ML-KEM-768 complete.** KeyGen 26.8M, Encaps 30.2M, Decaps 35.1M cycles; 87.5% of the 7,680 B window; ABI unchanged (additive). |
+| **v0.5.1** | **339,688** | **51,399,581** | **7,208 B** | **P3 Lane A, cycle reduction.** Keccak −25.6% (theta fused, rho+pi as a generated lane script, RC via pointer — now link-invariant), INTT scaling half-folded. KeyGen 21.8M, Encaps 24.9M, Decaps 29.6M; 93.9% of the window; implementation-only, ABI 2 unchanged. |
 
 ¹ Same code as v0.3.0; the RC table moved with the P2 rodata and 115 cycles of
 page-crossing moved with it (README, "Measured cycles per Keccak-f[1600]").
@@ -46,20 +47,24 @@ page-crossing moved with it (README, "Measured cycles per Keccak-f[1600]").
 
 ## Phase 2: ML-KEM-768 — measured
 
-> ## keygen + decaps = 61,928,289 cycles
+> ## keygen + decaps = 51,399,581 cycles
 >
-> KeyGen **26,835,087** · Encaps **30,221,505** · Decaps **35,093,202**
-> · 60.6 s for keygen+decaps at 1.023 MHz · display blanked.
+> KeyGen **21,801,702** · Encaps **24,880,455** · Decaps **29,597,879**
+> · 50.3 s for keygen+decaps at 1.023 MHz · display blanked.
+>
+> (v0.5.0 measured 61,928,289: KeyGen 26,835,087 · Encaps 30,221,505 ·
+> Decaps 35,093,202. The P3 pass took 17.0% off; the levers are itemised
+> under "Where the cycles go".)
 
-**That is inside the roadmap's 40–70M keygen+decaps budget, in its upper
-half, and it is not going to get much better: 65% of it is Keccak.** The
-TLS client calls KeyGen once and Decaps once per handshake, so the
-post-quantum half of `X25519MLKEM768` costs the C64 **about a minute** of
-CPU per connection before X25519, the certificate chain and the record layer
-are counted. The 15–45M "non-Keccak" estimate the budget was built on is
-replaced by a measurement of **21.7M** (keygen+decaps, everything that is not
-a Keccak permutation) — inside that band, so the budget survives; but the
-band's *bottom* assumed a Keccak that does not exist on this CPU.
+**That is inside the roadmap's 40–70M keygen+decaps budget, now just below
+its midpoint, and 58% of it is still Keccak.** The TLS client calls KeyGen
+once and Decaps once per handshake, so the post-quantum half of
+`X25519MLKEM768` costs the C64 **about 50 seconds** of CPU per connection
+before X25519, the certificate chain and the record layer are counted. The
+15–45M "non-Keccak" estimate the budget was built on is replaced by a
+measurement of **21.5M** (keygen+decaps, everything that is not a Keccak
+permutation) — inside that band, so the budget survives; but the band's
+*bottom* assumed a Keccak that does not exist on this CPU.
 
 Cycle counts are exact, reproduce to the cycle across runs (VICE is
 deterministic; `make bench-kem` measures each twice and refuses to report a
@@ -78,20 +83,23 @@ K-PKE glue and the sponge's own per-block bookkeeping (3,850 cycles per block).
 
 | Primitive | cycles | Keccak-f × | = cycles | share | NTT / INTT / basemul | = cycles | share | rest |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| KeyGen | 26,835,087 | 43 | 19,638,960 | 73.2% | 6 / 0 / 9 | 6,246,663 | 23.3% | 949,464 |
-| Encaps | 30,221,505 | 44 | 20,095,680 | 66.5% | 3 / 4 / 12 | 8,094,284 | 26.8% | 2,031,541 |
-| Decaps | 35,093,202 | 45 | 20,552,400 | 58.6% | 6 / 5 / 15 | 11,420,641 | 32.5% | 3,120,161 |
-| **keygen + decaps** | **61,928,289** | **88** | **40,191,360** | **64.9%** | | **17,667,304** | **28.5%** | 4,069,625 |
+| KeyGen | 21,801,702 | 43 | 14,606,584 | 67.0% | 6 / 0 / 9 | 6,245,625 | 28.6% | 949,493 |
+| Encaps | 24,880,455 | 44 | 14,946,272 | 60.1% | 3 / 4 / 12 | 7,905,344 | 31.8% | 2,028,839 |
+| Decaps | 29,597,879 | 45 | 15,285,960 | 51.6% | 6 / 5 / 15 | 11,184,313 | 37.8% | 3,127,606 |
+| **keygen + decaps** | **51,399,581** | **88** | **29,892,544** | **58.2%** | | **17,429,938** | **33.9%** | 4,077,099 |
+
+(v0.5.0: 61,928,289 = 40,191,360 Keccak (64.9%) + 17,667,304 arithmetic +
+4,069,625 rest.)
 
 Per primitive, one call (`make bench-kem`; the NTT numbers were first
 measured by `make test-ntt` and reproduce exactly):
 
 | Routine | cycles | note |
 |---|---:|---|
-| `keccak_f1600` | 456,720 | 19,030 / round. P1's 456,605 plus 115 cycles of RC-table page crossings that moved with the rodata layout |
-| `mlkem_poly_ntt` | 579,016 | 896 butterflies + 127 per-block tables, ~560 per butterfly all-in |
-| `mlkem_poly_intt` | 665,120 | NTT shape + 256 scalings by 3303 |
-| `mlkem_poly_basemul` | 308,063 | 128 pairs × 4 general (secret × secret) multiplies |
+| `keccak_f1600` | 339,688 | 14,154 / round. **Link-invariant since v0.5.1** (v0.5.0: 456,720, moving with the rodata layout) |
+| `mlkem_poly_ntt` | 578,948 | 896 butterflies + 127 per-block tables, ~560 per butterfly all-in. Moves by a few cycles with the zeta table's page placement (public index; v0.5.0: 579,016) |
+| `mlkem_poly_intt` | 618,146 | NTT shape + 128 scalings by 3303 — the other 128 are folded into the last layer's block constant (v0.5.0: 665,120) |
+| `mlkem_poly_basemul` | 307,993 | 128 pairs × 4 general (secret × secret) multiplies (v0.5.0: 308,063) |
 | one NTT butterfly multiply | ~330 | 2 quarter-square partials on `sqtab` + 14-entry per-block `U` table + table reduction |
 | one general multiply | ~440 | 3 partials + the 27-entry `|d|` table |
 
@@ -102,10 +110,31 @@ of accumulate-OR and costs the same whether or not it matches — `make
 test-mlkem` pins the decaps cycle count identical for a valid ciphertext and
 for ciphertexts one bit off at each end.
 
-**What would move the number.** Keccak is 65% and the permutation is already
-where P1 left it; `theta` (36% of a permutation) is the only untried step.
-On the arithmetic side the multiply is the lever: ~48,000 multiplies per
-keygen+decaps at 330–440 cycles. The §8.3 canonical `ct_mul_8x8` body was
+**The P3 pass (v0.5.1).** Six measured levers, one commit each, every one
+behind `make test` + 45/45 mutants + before/after numbers in its message:
+
+| # | Lever | Keccak-f / call | keygen + decaps | bytes |
+|---|---|---:|---:|---:|
+| 1 | fold 128⁻¹ into the last INTT layer (INTT 665,120 → 618,150) | — | 61,928,289 → 61,702,929 | +31 |
+| 2 | RC via ZP pointer, lane tables in `.align 64` chunks, packed rotation byte — **link-invariant** | 456,856 → 454,624 | → 61,505,413 | +7 |
+| 3 | theta: rot / D / apply fused into one column loop over a mirrored `C` (6,859 → 4,183 / round) | → 389,727 | → 55,789,233 | +206 |
+| 4 | rho+pi as a generated straight-line lane script, no tables, no `jmp (abs)` (7,662 → 6,117 / round) | → 352,624 | → 52,524,194 | +91 |
+| 5a | theta `C` loop unrolled ×4 (→ 4,022 / round) | → 348,783 | → 52,181,574 | +55 |
+| 5b | rotation pass ladders entered at the pass count (rho+pi → 5,700 / round) | → 339,688 | → 51,399,581 | +122 |
+
+**Rejected / not taken, with numbers.** The brief's two NTT levers were
+not attempted: inlining the block-constant multiply into the butterflies
+removes the `stx/sty/jsr/ldx/ldy/rts` around `fq_mul_blk` (≈ 25 cycles ×
+896 = 22k per NTT, × 11 NTT+INTT in keygen+decaps ≈ 0.25M, 0.5%) for two
+copies of the ~190 B multiply body — ≈ 400 B, i.e. ~600 cycles per byte
+against 5,000–8,000 for the Keccak levers above, and it would leave < 80 B
+of the window and push the test build past it. Per-block nibble tables for
+layers 0–3 need ≥ 512 B of tables and cannot fit. Lane complementing for
+chi (drops four of the five `eor #$FF` per row-byte, ≈ 0.7M) was rejected
+because it changes the state representation the read-only per-step harness
+compares against. Not taken for diminishing returns: chi's byte loop
+unrolled ×2 (≈ 0.3M for +65 B). The rest of the arithmetic side is
+unchanged: ~48,000 multiplies per keygen+decaps at 330–440 cycles. The §8.3 canonical `ct_mul_8x8` body was
 rejected for exactly this reason (`docs/contract-p2-alignment.md` §3: ~4
 partials + 2 SMC re-bakes through `jsr` per 12×12 product, ≈ 5–8M more).
 A Montgomery-domain representation would remove the table reductions
@@ -119,25 +148,26 @@ Measured from the shipped `mlkem.a` linked into a probe image
 
 | Segment | bytes | of which |
 |---|---:|---|
-| `LIB_MLKEM_CODE` | 5,694 | Keccak 888 · sponge 281 · sqtab init 84 · NTT/field 1,598 · samplers 221 · codecs 681 · K-PKE/ML-KEM 1,941 |
-| `LIB_MLKEM_RODATA` | 1,025 | Keccak 308 · zetas + NTT constants 407 · CBD 32 · compress tables 256 (incl. 21 B `align = $40` pad) · 1 |
-| **resident total** | **6,719** | declared `LIB_MLKEM_RESIDENT_BYTES = 6912` (next 256-B boundary; also covers the 6,892 B test build) |
+| `LIB_MLKEM_CODE` | 6,311 | Keccak 1,474 · sponge 281 · sqtab init 84 · NTT/field 1,629 · samplers 221 · codecs 681 · K-PKE/ML-KEM 1,941 |
+| `LIB_MLKEM_RODATA` | 897 | Keccak 192 (the RC table; the lane tables became immediates) · zetas + NTT constants 407 · CBD 32 · compress tables 256 · 1 · 9 B `align = $40` pad |
+| **resident total** | **7,208** | declared `LIB_MLKEM_RESIDENT_BYTES = 7424` (next 256-B boundary; also covers the 7,381 B test build). v0.5.0: 6,719 |
 | `LIB_MLKEM_BSS` | 6,641 | see below |
 
 Per work package, code + rodata:
 
 | | bytes | share |
 |---|---:|---:|
-| P1 Keccak + sponge | 1,477 | 22.0% |
-| WP1 field arithmetic + NTT (incl. `sqtab` init) | 2,089 | 31.1% |
-| WP2 samplers + codecs | 1,190 | 17.7% |
-| WP3 K-PKE + ML-KEM | 1,942 | 28.9% |
-| alignment pad | 21 | 0.3% |
+| P1 Keccak + sponge (after P3: +470 B for −25.6% cycles) | 1,947 | 27.0% |
+| WP1 field arithmetic + NTT (incl. `sqtab` init) | 2,120 | 29.4% |
+| WP2 samplers + codecs | 1,190 | 16.5% |
+| WP3 K-PKE + ML-KEM | 1,942 | 26.9% |
+| alignment pad | 9 | 0.1% |
 
-**6,719 B of the 7,680 B `CRYPTO_OVERLAY` window — 87.5%, 961 B headroom.
+**7,208 B of the 7,680 B `CRYPTO_OVERLAY` window — 93.9%, 472 B headroom.
 No image split was needed** (HANDOFF-P2 decision 1's fallback). Looped,
-table-driven code throughout; the only unrolling is P1's eight rotation copy
-variants.
+table-driven code everywhere except the Keccak permutation, where P3 spent
+489 B of unrolling (theta's column body, the 25-lane rho+pi script, the
+rotation ladders) on the 58% of the cycle count it owns.
 
 **But the window is nominal.** The 7,680 B figure is the *size* of
 c64-https' `CRYPTO_OVERLAY` slot. In the current UCI cfg the slot is not
@@ -223,41 +253,75 @@ been pushed.
 
 ### Measured cycles per Keccak-f[1600]
 
-> ## 456,605 cycles
+> ## 339,688 cycles
 >
-> 19,025 cycles/round · 446 ms at 1.023 MHz · display blanked.
+> 14,154 cycles/round · 332 ms at 1.023 MHz · display blanked.
 
-(456,720 in the v0.5.0 link — same code; see the note on the RC table below.
-`make bench` reports whatever the current link measures.)
+(P1 shipped 456,605 at v0.3.0 — 456,720 in the v0.5.0 link, see below —
+and P3 took it to 339,688, **−25.6%**, in four commits: theta fused, the
+rho+pi lane loop replaced by a generated straight-line script, the rotation
+passes unrolled, the RC table read through a pointer.)
 
-**24.0% faster than the v0.2.0 baseline** (600,771 cycles), all of it from
-`rho+pi`. The unoptimised form is preserved at tag
+**43.5% faster than the v0.2.0 baseline** (600,771 cycles). The unoptimised
+form is preserved at tag
 [`v0.2.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.2.0) as the
 reference point.
 
-The count is exact and repeatable within a build, and shifts by a few tens of
-cycles between builds: `iota` does 192 `lda keccak_rc,x` reads per permutation
-and how many cross a page depends on where ld65 placed the round-constant
-table. Page-aligning it would make the headline figure build-invariant.
+The count is exact and repeatable, and **since v0.5.1 it does not move with
+the link**: P1's `iota` did 192 `lda keccak_rc,x` reads per permutation and
+how many crossed a page depended on where ld65 placed the round-constant
+table (456,605 / 456,720 / 456,856 in three links). It now reads the entry
+through a zero-page pointer, whose `(zp),y` only pays the crossing if the
+8-byte entry itself straddles (asserted impossible), and rho+pi no longer
+reads any table at all. Measured: +37 B of unrelated rodata and +51 B of
+unrelated code reproduce the count exactly. What remains layout-sensitive
+is the ordinary 6502 taken-branch-across-a-page cycle on the two loops that
+still exist (chi's byte loop, theta's C loop): ≤ 1,200 cycles per
+permutation if a consumer's link happens to put one on a page edge, which
+is where the 4,191 / 4,230 chi figures in the two tables below come from.
 
-**Still 1.3x the top of the roadmap's 150,000–350,000 estimate band.** At
-~55–60 permutations for ML-KEM-768 keygen+decaps that is **25–27M cycles of
-Keccak alone**, against a total budget of 40–70M for the whole operation —
-down from 33–36M at v0.2.0, but the original estimate does not survive contact
-with a measurement either way.
+**Now inside the roadmap's 150,000–350,000 estimate band, 3% under its
+top** — P1 measured 1.3x over it. At the 88 permutations ML-KEM-768
+keygen+decaps actually needs that is **29.9M cycles of Keccak**, against a
+total budget of 40–70M for the whole operation — down from 40.2M at v0.5.0
+and 33–36M (at the estimated permutation count) at v0.2.0.
 
 Measured with CIA1 Timer A+B chained as a 32-bit phi2 counter (`src/bench.s`).
 Single and 8x-amortised measurements agree to 0.0 cycles.
 
 ### Where the cycles go
 
-| Step | v0.2.0 | **v0.3.0** | x24 | share |
-|---|---:|---:|---:|---:|
-| theta | 6,859 | 6,859 | 164,616 | 36.1% |
-| **rho+pi** | 13,764 | **7,757** | 186,168 | 40.8% |
-| chi | 4,191 | 4,195 | 100,680 | 22.1% |
-| iota | 208 | 208 | 4,992 | 1.1% |
-| **total** | 25,022 | **19,019** | 456,456 | |
+| Step | v0.2.0 | v0.3.0 | **v0.5.1** | x24 | share |
+|---|---:|---:|---:|---:|---:|
+| theta | 6,859 | 6,859 | **4,022** | 96,528 | 28.4% |
+| rho+pi | 13,764 | 7,757 | **5,700** | 136,800 | 40.3% |
+| chi | 4,191 | 4,195 | 4,230 ² | 101,520 | 29.9% |
+| iota | 208 | 208 | **188** | 4,512 | 1.3% |
+| **total** | 25,022 | 19,019 | **14,140** | 339,360 | |
+
+² chi is untouched; the +35 is its byte loop's `bne` landing across a page
+edge in this link (see above).
+
+**P3 (v0.5.1), −4,879 cycles/round for +470 B**, from the permutation's
+bookkeeping rather than its arithmetic:
+
+1. **theta computes nothing twice and stores nothing it can hold.** P1 ran
+   four passes: C, ROTL(C,1) into a buffer, D with per-byte mod-40 index
+   arithmetic (~50 cycles a byte), then D applied to five rows. Now `C` is
+   mirrored one lane on each side (`[C4'] C0..C4 [C0']`) so `C[col±1]` are
+   fixed displacements from `X = 8·col`, and one column loop rotates
+   `C[col+1]` on the `rol` carry chain, XORs `C[col−1]`, parks the D byte in
+   Y and XORs it into all five rows on the spot. The C pass is unrolled ×4.
+   6,859 → 4,022.
+2. **rho+pi is a generated script, not a loop.** The 25 lanes are
+   straight-line `KECCAK_LANE` expansions from the validated model — every
+   destination, byte-rotation and pass count an immediate — calling the
+   copy variant and then `jsr`-ing straight to the entry for that lane's
+   pass count in an unrolled rotation ladder. The four lane tables, the
+   jump vector, the `jmp (abs)` and ~80 cycles of bookkeeping per lane are
+   gone. 7,757 → 5,700.
+3. **iota reads the round constant through a pointer** (188, and
+   link-invariant).
 
 `rho+pi` went from 55.0% of the permutation to 40.8%, a **43.6% cut**, from
 three changes — for 402 bytes of code:
@@ -275,20 +339,23 @@ three changes — for 402 bytes of code:
    `8s+b == 8(s+1)-(8-b)`. Taking the shorter direction caps the bit passes at
    4 instead of 7 and cuts the per-round total from 88 to 52.
 
-Still on the table: **theta** is now the second cost at 36.1% (its `D` step
-does per-byte mod-40 index arithmetic that could be unrolled per column), and
-**page-aligning the RC table** would remove the build-to-build variation.
+Still on the table after P3: the 49 rotation passes at 8 × `rol abs,x`
+(3,038 cycles/round, 21% of the permutation) are the largest single item
+and have no cheaper in-place form on this CPU; chi is loop-minimal short of
+a 455 B unroll; lane complementing is incompatible with the per-step
+harness. The next real step would be structural (bit-interleaved lanes, a
+different state layout), not local.
 
 ### What the sponge costs
 
-Absorbing one full 136-byte rate block takes **460,455 cycles**, of which
-456,605 is the permutation — so the whole sponge layer (XOR-into-state,
+Absorbing one full 136-byte rate block takes **343,538 cycles**, of which
+339,688 is the permutation — so the whole sponge layer (XOR-into-state,
 padding, block bookkeeping) is **3,850 cycles, 0.8%**. Sponge-level
 optimisation would be wasted effort; the permutation is the entire cost. That
 the figure is *exactly* 3,850 both before and after the rho+pi work — code the
 optimisation never touched — is a useful independent check on the instrument.
 
-Roughly **3,385 cycles per byte hashed**.
+Roughly **2,526 cycles per byte hashed** (3,385 at v0.3.0).
 
 ### Measuring this correctly is harder than it looks
 
@@ -311,13 +378,15 @@ Two traps, both of which produced plausible-but-wrong numbers here first:
 
 | Segment | bytes |
 |---|---:|
-| `LIB_MLKEM_CODE` | 1,169 |
-| `LIB_MLKEM_RODATA` | 308 |
-| **resident total** | **1,477** |
-| `LIB_MLKEM_BSS` | 594 |
+| `LIB_MLKEM_CODE` | 1,755 |
+| `LIB_MLKEM_RODATA` | 192 |
+| **resident total** | **1,947** |
+| `LIB_MLKEM_BSS` | 527 |
 
-**1,477 B of the ~3 KB P1 budget — 48.1%** (886 B permutation + 283 B sponge).
-The permutation grew 402 B to buy the 24% speedup. `make check-manifest`
+**1,947 B of the ~3 KB P1 budget — 63.4%** (1,666 B permutation + 281 B
+sponge; declared 2048). P1 was 1,477 B (1,169 + 308, BSS 594): the
+permutation grew 402 B for the v0.3.0 speedup and another 470 B in P3 for
+the v0.5.1 one. `make check-manifest`
 re-measures both member sets from the map files and **fails** if a declared
 footprint equate has fallen below measured.
 

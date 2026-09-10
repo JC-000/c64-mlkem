@@ -6,7 +6,12 @@
 ; and 240 intermediate states by tools/test_keccak_ref.py.
 ; ============================================================================
 
-; 24 round constants, 8 bytes each, little-endian lanes (192 B).
+; 24 round constants, 8 bytes each, little-endian lanes (192 B). iota reads
+; them through a zero-page pointer, (zp),y over one 8-byte entry, so no read
+; ever crosses a page as long as the entries are 8-aligned: the .align 64
+; (cfg align = $40, the same requirement src/codec.s already imposes) keeps
+; the permutation's cycle count independent of where rodata lands.
+.align 64
 keccak_rc:
         .byte $01, $00, $00, $00, $00, $00, $00, $00   ; round  0
         .byte $82, $80, $00, $00, $00, $00, $00, $00   ; round  1
@@ -33,33 +38,39 @@ keccak_rc:
         .byte $01, $00, $00, $80, $00, $00, $00, $00   ; round 22
         .byte $08, $80, $00, $80, $00, $00, $00, $80   ; round 23
 
-; Fused rho+pi, indexed by SOURCE lane i = x + 5y.
-; keccak_pi_dst:  destination BYTE offset (8 * destination lane index)
-; keccak_rot_byte: whole-byte rotation — free, it is just a byte permute
-;                  applied while copying the lane into its destination
-; keccak_rot_cnt:  residual bit passes, 0..4
-; keccak_rot_dir:  0 = rotate left, 1 = rotate right (the short way round)
-keccak_pi_dst:
-        .byte   0,  80, 160,  40, 120
-        .byte 128,   8,  88, 168,  48
-        .byte  56, 136,  16,  96, 176
-        .byte 184,  64, 144,  24, 104
-        .byte 112, 192,  72, 152,  32
-keccak_rot_byte:
-        .byte   0,   0,   0,   3,   3
-        .byte   4,   5,   1,   7,   2
-        .byte   0,   1,   5,   3,   5
-        .byte   5,   6,   2,   3,   1
-        .byte   2,   0,   0,   7,   2
-keccak_rot_cnt:
-        .byte   0,   1,   2,   4,   3
-        .byte   4,   4,   2,   1,   4
-        .byte   3,   2,   3,   1,   1
-        .byte   1,   3,   1,   3,   0
-        .byte   2,   2,   3,   0,   2
-keccak_rot_dir:
-        .byte   0,   0,   1,   0,   0
-        .byte   0,   0,   1,   1,   0
-        .byte   0,   0,   0,   0,   1
-        .byte   0,   1,   1,   1,   0
-        .byte   0,   0,   1,   0,   1
+; Fused rho+pi as a straight-line script, one KECCAK_LANE per SOURCE lane
+; i = x + 5y (the macro is defined in src/keccak.s, which expands this):
+;   KECCAK_LANE lane, dst, s, sc
+;     dst  destination BYTE offset in keccak_B (8 * destination lane)
+;     s    whole-byte rotation, applied as a byte permute while copying
+;     sc   residual bit passes 0..4 in bits 0-6, bit 7 set = rotate RIGHT
+;          (the short way round); 0 = no bit rotation
+; Being immediates, none of this is table-read at run time, so the
+; permutation's cost cannot depend on where rodata lands.
+.macro KECCAK_RHOPI_SCRIPT
+        KECCAK_LANE  0, $00, 0, $00
+        KECCAK_LANE  1, $50, 0, $01
+        KECCAK_LANE  2, $A0, 0, $82
+        KECCAK_LANE  3, $28, 3, $04
+        KECCAK_LANE  4, $78, 3, $03
+        KECCAK_LANE  5, $80, 4, $04
+        KECCAK_LANE  6, $08, 5, $04
+        KECCAK_LANE  7, $58, 1, $82
+        KECCAK_LANE  8, $A8, 7, $81
+        KECCAK_LANE  9, $30, 2, $04
+        KECCAK_LANE 10, $38, 0, $03
+        KECCAK_LANE 11, $88, 1, $02
+        KECCAK_LANE 12, $10, 5, $03
+        KECCAK_LANE 13, $60, 3, $01
+        KECCAK_LANE 14, $B0, 5, $81
+        KECCAK_LANE 15, $B8, 5, $01
+        KECCAK_LANE 16, $40, 6, $83
+        KECCAK_LANE 17, $90, 2, $81
+        KECCAK_LANE 18, $18, 3, $83
+        KECCAK_LANE 19, $68, 1, $00
+        KECCAK_LANE 20, $70, 2, $02
+        KECCAK_LANE 21, $C0, 0, $02
+        KECCAK_LANE 22, $48, 0, $83
+        KECCAK_LANE 23, $98, 7, $00
+        KECCAK_LANE 24, $20, 2, $82
+.endmacro
