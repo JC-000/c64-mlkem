@@ -185,7 +185,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
-        vectors help
+        check-harness-routing vectors help
 
 all: $(PRG)
 
@@ -317,6 +317,14 @@ check-manifest: $(PRG) $(LIB_PROBE)
 check-sqtab-guard:
 	@$(TOOLS_DIR)/check_sqtab_guard.sh
 
+# Every device read/write in tools/ must go through the c64-test-harness
+# funnel (write_bytes/read_bytes/jsr), the single point that owns chunking and
+# hardware /Temp cleanup. Fails the build if a tool adds a direct
+# transport/socket/REST call that would bypass it and could wedge the C64U.
+# Pure grep, no build inputs, so it runs standalone and inside `test`.
+check-harness-routing:
+	@$(TOOLS_DIR)/check_harness_routing.sh
+
 # --- tests ------------------------------------------------------------------
 
 # Oracle self-tests, pure Python, no VICE: tools/keccak_ref.py against the
@@ -382,7 +390,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a

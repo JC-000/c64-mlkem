@@ -235,6 +235,19 @@ guard that has degraded to an unconditional rebuild.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.
 - Never invoke `x64sc` directly — always through `c64-test-harness`.
+- **Device I/O routing — the single funnel.** Every byte a tool sends to or
+  reads from a C64 goes through the harness helpers `write_bytes` /
+  `read_bytes` / `jsr` / `wait_for_text`, never a raw `transport.write_memory`,
+  `socket`, `requests`, or hand-rolled `machine:writemem`/`/v1/` REST call.
+  That funnel is the ONE place that owns chunking (`memory.py` splits at 84 B,
+  below the Ultimate's 128 B POST-leak boundary) and, on real hardware, `/Temp`
+  cleanup — so a bypass can wedge the shared C64U (fw 1.1.0; ~15 body-carrying
+  REST POSTs fill `/Temp` and only a physical power-cycle recovers it). Fetch
+  the transport with `transport = inst.transport` and pass it INTO those
+  helpers; do not call methods on it. `make check-harness-routing` (in `make
+  test`, `tools/check_harness_routing.sh`) fails the build the moment a tool
+  adds a bypass. A deliberate, reviewed exception widens that guard's regex in
+  the same commit.
 - Use the venv interpreter at
   `/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3`.
 - Keep the default suite fast; put exhaustive runs behind a flag. VICE

@@ -477,6 +477,7 @@ make check-archives   # no driver object in any archive; per-archive manifest va
 make check-staleness  # §6.3 both legs on three knobs
 make check-sqtab-guard  # §6.7: the image guard fires on a deliberate overrun
 make check-prefix     # every archive export under mlkem_ / LIB_MLKEM_ / keccak_
+make check-harness-routing  # all tool device I/O goes through the harness funnel
 make vectors          # fetch the CAVP LongMsg sets (~4.8 MB, not tracked)
 ```
 
