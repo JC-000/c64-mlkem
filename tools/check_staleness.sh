@@ -1,16 +1,14 @@
 #!/bin/sh
-# check_staleness.sh — contract §6.3 invalidation branch, both legs, on every
-# §6.2 knob this repo honors.
+# check_staleness.sh — repo-local configuration invalidation, both legs, on
+# every §6.2 knob this repo honors.
 #
-# §6.3 (v0.11.1) requires that a knob a target CAN honor invalidates whatever it
-# reconfigures. The failure it guards against is silent: over a warm tree make
+# A knob a target CAN honor must invalidate whatever it reconfigures. The failure it guards against is silent: over a warm tree make
 # sees no reason to rebuild, exits 0, and ships the previously-configured
 # artifact. Measured in this repo before the fix.
 #
-# BOTH legs are required for every knob. The clause is explicit that a guard
-# which has degraded to an unconditional rebuild still passes a check
-# exercising only leg 1, and that the pinning check must assert the ARTIFACT
-# flipped rather than that something rebuilt.
+# BOTH legs are required for every knob: a guard which has degraded to an
+# unconditional rebuild still passes a check exercising only leg 1. The check
+# must assert the ARTIFACT flipped rather than that something rebuilt.
 #
 #   leg 1  changing a knob flips the artifact
 #   leg 2  repeating the same knob rebuilds nothing and yields the same artifact
@@ -18,19 +16,18 @@
 # Knobs:
 #   A  CONTRACT_ZP_DEFINES  mlkem_zp_src=0x40        (§6.2 slot, P1)
 #   B  CONTRACT_DEFINES     LIB_SHARED_SQTAB_BASE=0x9400  (§8.1 window, P2 —
-#      the 0.11.1 text names a stale sqtab base as "a wrong address for the
-#      §8.1 window"; the multiply bakes the page byte into its abs,x sites,
-#      so a stale object IS a wrong address)
+#      the multiply bakes the page byte into its abs,x sites, so a stale
+#      object IS a wrong address)
 #   C  MLKEM_KECCAK_ONLY    the mlkem-keccak.a manifest configuration. Not a
-#      CONTRACT_DEFINES knob (the Makefile rejects it there, §6.3 rejection
-#      branch) but a per-target one: `make lib` and `make lib-keccak` must
+#      CONTRACT_DEFINES knob (the Makefile rejects it there at parse time)
+#      but a per-target one: `make lib` and `make lib-keccak` must
 #      each ship a manifest describing their own member set (§6.4) AND
 #      alternating between them on a warm tree must neither rebuild nor
 #      overwrite the other's manifest. Compared on od65 export VALUES.
 #
 # PRG knobs compare linked PRGs, never archives: ca65 stamps a wall-clock
 # OPT_DATETIME into every object, so .o/.a bytes differ across time-separated
-# builds regardless of configuration (contract §6.3 checkability note).
+# builds regardless of configuration.
 set -eu
 cd "$(dirname "$0")/.."
 PRG=build/mlkem.prg
@@ -109,4 +106,4 @@ else
 fi
 
 [ "$fail" -eq 0 ] || exit 1
-echo "check-staleness: OK (§6.3 invalidation branch, both legs, three knobs)"
+echo "check-staleness: OK (config invalidation, both legs, three knobs)"

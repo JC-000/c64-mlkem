@@ -1,10 +1,7 @@
 # =============================================================================
 # c64-mlkem — Makefile
 #
-# Contract: c64-lib-contract SPEC v0.13.0 (../c64-lib-contract head; the tags
-# lag the changelog — read the SPEC version line. See
-# docs/contract-p2-alignment.md for the v0.11.0 -> v0.13.0 clause-by-clause
-# verdicts).
+# Contract: c64-lib-contract SPEC 1.2.3 (../c64-lib-contract).
 #
 # §6.2 defines-forwarding. Both variables default empty and are ADDITIVE to
 # CA65FLAGS — a hard-assigned CA65FLAGS that a consumer must clobber to inject
@@ -34,15 +31,15 @@ CA65FLAGS          ?=
 CONTRACT_DEFINES   ?=
 CONTRACT_ZP_DEFINES ?=
 
-# --- §6.3 configuration invalidation (contract v0.11.1) --------------------
+# --- configuration invalidation (repo-local build hygiene) ------------------
 #
 # The defines above reach the ca65 command lines, but they are not prerequisites
 # of anything, so over a WARM tree make sees no reason to rebuild and ships the
 # previously-configured artifact with exit 0 and no diagnostic. Measured here
 # before the fix: `make CONTRACT_ZP_DEFINES="-D mlkem_zp_src=0x40"` after a
 # default build answered "Nothing to be done" and left the slot at $30. That is
-# the chacha#86 shape — §6.3's invalidation branch, not its rejection branch,
-# because these are configuration knobs the targets CAN honor.
+# the chacha#86 shape. These knobs are invalidated, not rejected, because they
+# are configuration the targets CAN honor.
 #
 # Fix: a stamp holds the configuration signature, compared at parse time. When
 # it DIFFERS the stale objects are deleted outright, so:
@@ -56,20 +53,19 @@ CONTRACT_ZP_DEFINES ?=
 # second as the objects it should invalidate compares as not-newer, so nothing
 # rebuilds. Measured here — stamp and object both at mtime 1787521864, content
 # changed, zero ca65 invocations.
-# Both properties matter. §6.3 is explicit that a guard which has quietly
-# degraded to an unconditional rebuild still passes a check that only exercises
+# Both properties matter. A guard which has quietly degraded to an unconditional rebuild still passes a check that only exercises
 # the change-rebuilds leg, which is why `make check-staleness` asserts both.
 CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
 CONFIG_STAMP = build/.config-sig
 
-# §6.3 REJECTION branch. MLKEM_KECCAK_ONLY is not a consumer knob: it names the
+# Rejected, not invalidated. MLKEM_KECCAK_ONLY is not a consumer knob: it names the
 # member set of mlkem-keccak.a and is set by the lib-keccak target itself, on
 # its own manifest object (build/kobj). Reaching every archive member through
 # CONTRACT_DEFINES is something no target here can honor — the full archive's
 # manifest would then describe a member set it does not ship (§6.4) — so it
 # is refused at parse time rather than silently producing a lying mlkem.a.
 ifneq (,$(findstring MLKEM_KECCAK_ONLY,$(CONTRACT_DEFINES) $(CA65FLAGS)))
-$(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.3/§6.4))
+$(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.4))
 endif
 
 # Run at PARSE time, deliberately — not from a recipe. By the time a recipe
@@ -275,7 +271,7 @@ $(ARCHIVE_KECCAK): $(KECCAK_OBJS) | $(LIB_DIR)
 
 # Shipped alongside every archive: the public header, the consumer-assembled
 # ZP source (§6.2), the §8.1 placement header (a consumer needs
-# LIB_SHARED_SQTAB_BASE for its own §6.7 guard, and the header is the ONLY
+# LIB_SHARED_SQTAB_BASE for its own image guard, and the header is the ONLY
 # place the default lives), and the starter cfg fragment (§4).
 $(LIB_DIR)/mlkem.inc: $(SRC_DIR)/mlkem.inc | $(LIB_DIR)
 	@cp $< $@
@@ -305,7 +301,7 @@ check-archives: lib lib-keccak
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7424 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
 
-# §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
+# Repo-local configuration invalidation, both legs. Leg 1 alone is not a test: a guard that
 # has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
 check-staleness:
 	@$(TOOLS_DIR)/check_staleness.sh
@@ -346,7 +342,7 @@ CONTRACT_PRECALC_REF ?= v1.2.2
 check-precalc:
 	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)" "$(CONTRACT_PRECALC_REF)"
 
-# §6.7 constraint 3: the image guard must be PROVEN to fire. Builds once with
+# Repo-local: the sqtab image guard must be PROVEN to fire. Builds once with
 # the sqtab window deliberately inside the image and requires the link to
 # fail, then restores the default configuration.
 check-sqtab-guard:
@@ -475,8 +471,8 @@ help:
 	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
 	@echo "make check-precalc   src/precalc_table.inc == contract head's copy (§8.4)"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
-	@echo "make check-staleness §6.3 both legs, on the ZP, sqtab-base and Keccak-only knobs"
-	@echo "make check-sqtab-guard  §6.7: the image guard fires on a deliberate overrun"
+	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
+	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"
