@@ -1,7 +1,7 @@
 .setcpu "6502"
 
 ; =============================================================================
-; c64-mlkem aggregate manifest — c64-lib-contract §5 (SPEC v0.13.0 head).
+; c64-mlkem aggregate manifest — c64-lib-contract §5 (SPEC 1.2.3).
 ;
 ; Split from src/lib_version.s per §1 TU isolation: ld65 links whole archive
 ; members, so the §5 aggregates a consumer legitimately imports must not share
@@ -20,19 +20,22 @@
 ;                    masks are 0 and no §8.4 row is emitted. §6.4 forbids one
 ;                    manifest describing two member sets; this is the
 ;                    nist-curves per-variant shape. The Makefile REJECTS
-;                    MLKEM_KECCAK_ONLY in CONTRACT_DEFINES at parse time
-;                    (§6.3 rejection branch): a consumer cannot honor it, it
-;                    only names a member set the lib-keccak target selects.
+;                    MLKEM_KECCAK_ONLY in CONTRACT_DEFINES at parse time (a
+;                    consumer cannot honor it; it only names a member set the
+;                    lib-keccak target selects).
 ;                    `make check-archives` pins both manifests with od65.
 ;
-; §6.6 safe-direction rule: RESIDENT_BYTES and COLD_BYTES MUST each be >= the
-; measured segment sum for THIS archive, rounded UP (fleet convention: the
-; next 256-byte boundary). A consumer asserts declared <= budget, so a
-; safe-direction value means declared-passes implies actual-passes.
+; §5 safe-direction rule: RESIDENT_BYTES and COLD_BYTES MUST each be >= the
+; placed span of the segments they cover in a link of THIS archive (internal
+; alignment fill charged; inter-segment gaps and leading padding not), rounded
+; UP (fleet convention: the next 256-byte boundary). A consumer asserts
+; declared <= budget, so a safe-direction value means declared-passes implies
+; actual-passes.
 ;
 ; Refreshed from the ld65 map files at the end of every phase
-; (`make check-manifest`, which links the ARCHIVE into a probe image and
-; FAILS if a value is below measured in either configuration).
+; (`make check-manifest`, which links EACH archive into its own probe image,
+; reads the declared values from that archive's manifest member with od65,
+; and FAILS if one is below the measured placed span).
 ;
 ; P3 measurement (v0.5.1) — the shipped mlkem.a configuration, no test hooks:
 ;   LIB_MLKEM_CODE   6311 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
@@ -61,7 +64,7 @@
 ; --- §5 required four ---------------------------------------------------
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
-; Per archive (§6.6): the Keccak-only member set is 1947 B measured, the full
+; Per archive (§6.4): the Keccak-only member set is 1947 B measured, the full
 ; set 7208 B. Both are literal decimals so tools/check_manifest.py can read
 ; them without evaluating expressions.
 .ifdef MLKEM_KECCAK_ONLY
@@ -71,7 +74,7 @@ LIB_MLKEM_RESIDENT_BYTES = 7424
 .endif
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).
-; Pairs with RESIDENT_BYTES per §6.6 — COLD is reclaimable-after-init and may
+; Pairs with RESIDENT_BYTES per §5 — COLD is reclaimable-after-init and may
 ; live in a different consumer budget. (HANDOFF.md omits this equate; §5
 ; requires it. Divergence recorded in README.md.) Still 0 in P2: the two
 ; init routines (mul_tables_init 84 B, mlkem_arith_init) sit in
@@ -120,8 +123,9 @@ LIB_MLKEM_REU_BANKS_USED = 0
 ; this build configuration" and the deferral switch drops it, so two libraries
 ; sharing the table end up with disjoint masks and the consumer's
 ; double-ownership assert is satisfiable. SHARED_SQTAB_INIT reaches this TU via
-; CONTRACT_DEFINES (every archive member) and is in the §6.3 invalidation
-; signature, which is what §6.4 needs for the manifest to describe the archive.
+; CONTRACT_DEFINES (every archive member) and is in the build's invalidation
+; signature (`make check-staleness`), which is what §6.4 needs for the
+; manifest to describe the archive.
 .ifdef MLKEM_KECCAK_ONLY
   _OWN_SQTAB = 0                        ; mlkem-keccak.a: no multiply, no table
 .elseif .defined(SHARED_SQTAB_INIT)
@@ -155,13 +159,14 @@ LIB_MLKEM_SHARED_CONSUMES = LIB_SHARED_PRIMITIVES_SQTAB
 ; c64-lib-contract §8.4 catch-loop: precalc-table enumeration
 ; =============================================================================
 ;
-; src/precalc_table.inc is copied BYTE-FOR-BYTE from the contract repo root
-; (`cmp src/precalc_table.inc ../c64-lib-contract/precalc_table.inc`); never
-; edit the local copy. §8.4 requires it to be .include'd from exactly ONE
-; translation unit, and this manifest TU is that unit (the c64-x25519 shape:
-; the §5 aggregates, the §8.0 masks and the §8.4 enumeration share one member,
-; so a consumer importing any of them pulls in the same, deliberately
-; export-only object).
+; src/precalc_table.inc is a BYTE-FOR-BYTE copy of the contract's file at the
+; tag pinned by CONTRACT_PRECALC_REF in the Makefile (`git -C
+; ../c64-lib-contract show <ref>:precalc_table.inc`); `make check-precalc`
+; verifies it. Never edit the local copy. §8.4 requires it to be .include'd
+; from exactly ONE translation unit, and this manifest TU is that unit (the
+; c64-x25519 shape: the §5 aggregates, the §8.0 masks and the §8.4
+; enumeration share one member, so a consumer importing any of them pulls in
+; the same, deliberately export-only object).
 ;
 ; NO BARE `LIB_PRECALC_<name>_*` EXPORTS — ever. The macro emits the deprecated
 ; unprefixed triple unless LIB_NO_BARE_EXPORTS is defined. This library ships
@@ -170,8 +175,9 @@ LIB_MLKEM_SHARED_CONSUMES = LIB_SHARED_PRIMITIVES_SQTAB
 ; and without `-D LIB_NO_BARE_EXPORTS=1`). Defining the switch HERE, before the
 ; include, keeps that true once P2 adds rows: only the `LIB_MLKEM_PRECALC_*`
 ; family is ever emitted, and `make check-prefix` fails the build if a bare
-; form leaks. (§8.4 has no written zero-consumer carve-out of its own — §1's
-; reasoning applies verbatim; see docs/contract-p2-alignment.md §5.)
+; form leaks. This is §8.4's own zero-consumer carve-out for the bare
+; LIB_PRECALC_* triple, which it satisfies by defining LIB_NO_BARE_EXPORTS in
+; the enumerating TU, .ifndef-guarded (see docs/contract-p2-alignment.md §5).
 .ifndef LIB_NO_BARE_EXPORTS
 LIB_NO_BARE_EXPORTS = 1
 .endif

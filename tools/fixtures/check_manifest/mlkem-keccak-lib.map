@@ -1,0 +1,25 @@
+Modules list:
+-------------
+zp_config.o:
+build/lib/mlkem-keccak.a(mlkem_lib_version.o):
+build/lib/mlkem-keccak.a(mlkem_state.o):
+    LIB_MLKEM_BSS     Offs=000000  Size=0000C8  Align=00100  Fill=0000
+build/lib/mlkem-keccak.a(mlkem_keccak.o):
+    LIB_MLKEM_RODATA  Offs=000000  Size=0000C0  Align=00040  Fill=0000
+    LIB_MLKEM_BSS     Offs=000100  Size=000108  Align=00100  Fill=0038
+    LIB_MLKEM_CODE    Offs=000000  Size=0005C2  Align=00001  Fill=0000
+build/lib/mlkem-keccak.a(mlkem_sponge.o):
+    LIB_MLKEM_BSS     Offs=000208  Size=000007  Align=00001  Fill=0000
+    LIB_MLKEM_CODE    Offs=0005C2  Size=000119  Align=00001  Fill=0000
+build/lib/mlkem-keccak.a(mlkem_lib_manifest.o):
+
+
+Segment list:
+-------------
+Name                   Start     End    Size  Align
+----------------------------------------------------
+LIB_MLKEM_CODE        000801  000EDB  0006DB  00001
+LIB_MLKEM_RODATA      000F00  000FBF  0000C0  00040
+LIB_MLKEM_BSS         001000  00120E  00020F  00100
+
+

@@ -4,7 +4,7 @@ ML-KEM (FIPS 203) for the Commodore 64, in ca65 assembly.
 
 Part of the [JC-000](https://github.com/JC-000) 6502 crypto library ecosystem
 and conformant to [c64-lib-contract](https://github.com/JC-000/c64-lib-contract)
-**v0.13.0 (head)**. Precalculated-table enumeration per §8.0/§8.4:
+**SPEC 1.2.3**. Precalculated-table enumeration per §8.0/§8.4:
 [`docs/precalc-tables.md`](docs/precalc-tables.md) — three P2 tables
 (`sqtab`, `mlkem_zetas`, `mlkem_rtab`) clear the floor; no Keccak table does.
 
@@ -164,7 +164,11 @@ Per work package, code + rodata:
 | alignment pad | 9 | 0.1% |
 
 **7,208 B of the 7,680 B `CRYPTO_OVERLAY` window — 93.9%, 472 B headroom.
-No image split was needed** (HANDOFF-P2 decision 1's fallback). Looped,
+No image split was needed** (HANDOFF-P2 decision 1's fallback). Placed
+contiguously, CODE+RODATA needs 7,231 B: the span plus this link's 23 B
+alignment gap (≤ 63 B while RODATA directly follows CODE at `align = $40`;
+contract §5 gives only `(-previous_end) mod alignment`, and a consumer that
+reorders or aligns more coarsely can pay more). Looped,
 table-driven code everywhere except the Keccak permutation, where P3 spent
 489 B of unrolling (theta's column body, the 25-lane rho+pi script, the
 rotation ladders) on the 58% of the cycle count it owns.
@@ -235,11 +239,11 @@ here and in `src/mlkem.inc`.
 |---|---|---|---|
 | 7 | HANDOFF-P2 WP4: "`mlkem-kem.a` alongside the existing archives" | **no `lib-kem` target.** `mlkem.a` *is* the ML-KEM archive | K-PKE/ML-KEM cannot be separated from the sponge it hashes with; a third archive would be a byte-identical second name for `mlkem.a`. `docs/contract-p2-alignment.md` does not call for it. |
 | 8 | §4: `LIB_MLKEM_RODATA` had no alignment requirement | **`align = $40` is now REQUIRED** on `LIB_MLKEM_RODATA` | `src/codec.s` places three secret-indexed tables (42/42/64 B) at 64 B boundaries so no `abs,x` read crosses a page (cost would depend on the secret). ld65 silently drops a source `.align` the cfg does not permit; the sources carry `lderror` asserts, so a cfg that omits it **fails the link**. Mutant `wp2-rodata-align-reverted` pins that. |
-| 9 | §8.1: consumer-chosen `LIB_SHARED_SQTAB_BASE` | standalone default **`$9000`**; `sqtab_base.inc` shipped next to `mlkem.inc`; consumer mirrors the §6.7 guard | Page-aligned, clear of every sibling default (`$7800`, `$8000/$8400`, `$9C00`, `$B800/$BC00`) and of the test harness's `$C000–$CFFF`; RAM under every `$01` state. The multiply bakes the page byte into its `abs,x` sites, so a stale object is a wrong address — `make check-staleness` covers the knob and `make check-sqtab-guard` proves the guard fires. |
+| 9 | §8.1: consumer-chosen `LIB_SHARED_SQTAB_BASE` | standalone default **`$9000`**; `sqtab_base.inc` shipped next to `mlkem.inc`; consumer mirrors the image guard | Page-aligned, clear of every sibling default (`$7800`, `$8000/$8400`, `$9C00`, `$B800/$BC00`) and of the test harness's `$C000–$CFFF`; RAM under every `$01` state. The multiply bakes the page byte into its `abs,x` sites, so a stale object is a wrong address — `make check-staleness` covers the knob and `make check-sqtab-guard` proves the guard fires. |
 | 10 | FIPS 203 §7.2: `ByteDecode12` output "must be < q" | **`mlkem_byte_decode_12` is a raw pass-through**: a field ≥ q is stored unreduced (3329..4095) | The modulus check on an encapsulation key is the caller's per §7.2, and this makes it *possible*: a decoder that reduced mod q would hide the violation. `mlkem_encaps` performs the explicit per-coefficient `< q` compare over all 768 fields (public data; may exit early) and returns `A = 1` with nothing written. ACVP `encapsulationKeyCheck` 10/10. |
 | 11 | FIPS 203 §7.3: decaps input check `H(ek) == dk[2336..2368]` | **not performed** by `mlkem_decaps` | §7.3 assigns it to the caller (the C64 API takes pointers, not lengths, either). A dk with a wrong `H(ek)` field is processed mechanically by Alg. 18 with the *stored* h; the result is pinned to a model that mirrors that (test D2), so the behaviour is deterministic and documented. ACVP `decapsulationKeyCheck` 10/10 against that model. |
 | 12 | §8.4: enumerate tables ≥ 256 B that are hot-loop-read | `mlkem_rtab` (1 KB of BSS **built at init**) *is* enumerated | WP1 read "precalculated" as "in the image" and filed no row; WP4 reversed it on the `sqtab` precedent — `sqtab` is also built at init by `mul_tables_init` and §8.1 makes *its* row mandatory. Region `RAM`, like `sqtab`. |
-| 13 | §6.4: one manifest per member set | `mlkem-keccak.a` ships its **own manifest object** (`-D MLKEM_KECCAK_ONLY=1`, `build/kobj`): masks `0/0`, no §8.4 rows, `RESIDENT_BYTES = 1536` | Its member set never reads `sqtab`. `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** (§6.3 rejection branch — no target can honor it build-wide). `check-archives` pins both manifests with `od65`; `check-staleness` pins that alternating `lib` / `lib-keccak` on a warm tree rebuilds nothing and overwrites neither. |
+| 13 | §6.4: one manifest per member set | `mlkem-keccak.a` ships its **own manifest object** (`-D MLKEM_KECCAK_ONLY=1`, `build/kobj`): masks `0/0`, no §8.4 rows, `RESIDENT_BYTES = 2048` | Its member set never reads `sqtab`. `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** (no target can honor it build-wide). `check-archives` pins both manifests with `od65`; `check-staleness` pins that alternating `lib` / `lib-keccak` on a warm tree rebuilds nothing and overwrites neither. |
 | 14 | §8.3 canonical `ct_mul_8x8` | **not taken**; private `mlkem_`-prefixed 12×12 multiply on `sqtab` directly; bit `$0004` clear in both masks | `docs/contract-p2-alignment.md` §3: the canonical 8×8 body costs ~4 partials + 2 re-bakes per product through `jsr`, ≈ 5–8M cycles per keygen+decaps more than the inline 6+6 split. CT obligations are met privately: every secret-indexed table is page-aligned and the cycle count is pinned input-independent. |
 
 Contract alignment for P2 — the v0.11.0 → v0.13.0 clause diff, the exact
@@ -475,18 +479,19 @@ make bench            # cycle-exact Keccak-f[1600] measurement
 make bench-kem        # KeyGen / Encaps / Decaps + NTT cycles, Keccak share separated
 make bench-sampler    # WP2 sampler/codec cycles + constant-time check
 make tables           # regenerate src/keccak_tables.inc + src/mlkem_tables.inc
-make check-manifest   # measured segment sizes vs the §5 footprint equates, both archives
+make check-manifest   # §5 placed span vs footprint equates, both archives
+make check-precalc    # precalc_table.inc == contract's at CONTRACT_PRECALC_REF
 make check-archives   # no driver object in any archive; per-archive manifest values
-make check-staleness  # §6.3 both legs on three knobs
-make check-sqtab-guard  # §6.7: the image guard fires on a deliberate overrun
+make check-staleness  # changed knob flips the artifact; repeat rebuilds nothing
+make check-sqtab-guard  # the sqtab image guard fires on a deliberate overrun
 make check-prefix     # every archive export under mlkem_ / LIB_MLKEM_ / keccak_
 make check-harness-routing  # all tool device I/O goes through the harness funnel
 make vectors          # fetch the CAVP LongMsg sets (~4.8 MB, not tracked)
 ```
 
-**VICE suites cannot run concurrently** — two harness instances collide on
-the monitor port. `make test` runs them one at a time; do not run a second
-`make test-*` or `bench*` in parallel on the same machine.
+VICE suites may run in parallel (the harness allocates monitor ports under a
+cross-process lock), but never run two `make`s in one build tree — they share
+`build/`.
 
 Tests use the shared venv interpreter, since the system `python3` lacks the
 harness:
@@ -531,7 +536,7 @@ the link rather than corrupting at runtime.
 §8.1 `sqtab` at `LIB_SHARED_SQTAB_BASE` (this library provides it unless you
 build with `-D SHARED_SQTAB_INIT`, in which case your designated owner does
 and this library imports it — never both); `mlkem_arith_init` builds the
-mod-q tables in `LIB_MLKEM_BSS`. Mirror the §6.7 guard in your own link
+mod-q tables in `LIB_MLKEM_BSS`. Mirror the image guard in your own link
 (`cfg/mlkem-example.cfg` shows the three lines).
 
 **Calling ML-KEM-768:** six 16-bit pointers in the parameter block at

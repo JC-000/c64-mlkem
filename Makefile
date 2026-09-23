@@ -1,10 +1,7 @@
 # =============================================================================
 # c64-mlkem — Makefile
 #
-# Contract: c64-lib-contract SPEC v0.13.0 (../c64-lib-contract head; the tags
-# lag the changelog — read the SPEC version line. See
-# docs/contract-p2-alignment.md for the v0.11.0 -> v0.13.0 clause-by-clause
-# verdicts).
+# Contract: c64-lib-contract SPEC 1.2.3 (../c64-lib-contract).
 #
 # §6.2 defines-forwarding. Both variables default empty and are ADDITIVE to
 # CA65FLAGS — a hard-assigned CA65FLAGS that a consumer must clobber to inject
@@ -34,15 +31,15 @@ CA65FLAGS          ?=
 CONTRACT_DEFINES   ?=
 CONTRACT_ZP_DEFINES ?=
 
-# --- §6.3 configuration invalidation (contract v0.11.1) --------------------
+# --- configuration invalidation (repo-local build hygiene) ------------------
 #
 # The defines above reach the ca65 command lines, but they are not prerequisites
 # of anything, so over a WARM tree make sees no reason to rebuild and ships the
 # previously-configured artifact with exit 0 and no diagnostic. Measured here
 # before the fix: `make CONTRACT_ZP_DEFINES="-D mlkem_zp_src=0x40"` after a
 # default build answered "Nothing to be done" and left the slot at $30. That is
-# the chacha#86 shape — §6.3's invalidation branch, not its rejection branch,
-# because these are configuration knobs the targets CAN honor.
+# the chacha#86 shape. These knobs are invalidated, not rejected, because they
+# are configuration the targets CAN honor.
 #
 # Fix: a stamp holds the configuration signature, compared at parse time. When
 # it DIFFERS the stale objects are deleted outright, so:
@@ -56,20 +53,21 @@ CONTRACT_ZP_DEFINES ?=
 # second as the objects it should invalidate compares as not-newer, so nothing
 # rebuilds. Measured here — stamp and object both at mtime 1787521864, content
 # changed, zero ca65 invocations.
-# Both properties matter. §6.3 is explicit that a guard which has quietly
-# degraded to an unconditional rebuild still passes a check that only exercises
-# the change-rebuilds leg, which is why `make check-staleness` asserts both.
+# Both properties matter. A guard which has quietly degraded to an
+# unconditional rebuild still passes a check that only exercises the
+# change-rebuilds leg, which is why `make check-staleness` asserts both.
 CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
 CONFIG_STAMP = build/.config-sig
 
-# §6.3 REJECTION branch. MLKEM_KECCAK_ONLY is not a consumer knob: it names the
-# member set of mlkem-keccak.a and is set by the lib-keccak target itself, on
-# its own manifest object (build/kobj). Reaching every archive member through
-# CONTRACT_DEFINES is something no target here can honor — the full archive's
-# manifest would then describe a member set it does not ship (§6.4) — so it
-# is refused at parse time rather than silently producing a lying mlkem.a.
+# Rejected, not invalidated. MLKEM_KECCAK_ONLY is not a consumer knob: it
+# names the member set of mlkem-keccak.a and is set by the lib-keccak target
+# itself, on its own manifest object (build/kobj). Reaching every archive
+# member through CONTRACT_DEFINES is something no target here can honor — the
+# full archive's manifest would then describe a member set it does not ship
+# (§6.4) — so it is refused at parse time rather than silently producing a
+# lying mlkem.a.
 ifneq (,$(findstring MLKEM_KECCAK_ONLY,$(CONTRACT_DEFINES) $(CA65FLAGS)))
-$(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.3/§6.4))
+$(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.4))
 endif
 
 # Run at PARSE time, deliberately — not from a recipe. By the time a recipe
@@ -78,7 +76,7 @@ endif
 # the link is skipped, producing no output file at all (measured).
 _ := $(shell \
   if [ -f build/.config-sig ] && [ "$$(cat build/.config-sig)" != '$(CONFIG_SIG)' ]; then \
-    rm -rf build/obj build/tobj build/kobj build/lib build/mlkem.prg build/labels.txt build/mlkem.map build/mlkem-lib.prg build/mlkem-lib.map; \
+    rm -rf build/obj build/tobj build/kobj build/lib build/mlkem.prg build/labels.txt build/mlkem.map build/mlkem-lib.prg build/mlkem-lib.map build/mlkem-keccak-lib.prg build/mlkem-keccak-lib.map; \
   fi; \
   mkdir -p build 2>/dev/null; printf '%s' '$(CONFIG_SIG)' > build/.config-sig)
 
@@ -168,12 +166,25 @@ KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS))) \
 
 # Probe link of the SHIPPED archive (no test hooks): the driver objects plus
 # mlkem.a, every public entry forced in with -u so ld65 pulls every member.
-# Measures the footprint of the bytes a consumer actually links (§6.6) and
+# Measures the footprint of the bytes a consumer actually links (§5) and
 # proves the archive links on its own.
 LIB_PROBE     = $(BUILD_DIR)/mlkem-lib.prg
 LIB_PROBE_MAP = $(BUILD_DIR)/mlkem-lib.map
 LIB_PROBE_PULL = -u mlkem_keygen -u mlkem_encaps -u mlkem_decaps -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
 DRIVER_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS)))
+
+# Probe link of the SHIPPED mlkem-keccak.a, for its own §5 figures (contract
+# 1.2.3: the basis is the placed span in a real link, per archive — a subset
+# sum of the mlkem.a probe's member sizes is the object-size basis 1.2.3
+# forbids, and would miss any fill that member set places differently). The
+# driver objects cannot link against it (main.o imports the KEM entry points),
+# so the probe is the consumer-assembled zp_config.o plus the archive, with
+# every member's public surface forced in; check_manifest.py fails if any
+# member is left out. ld65 warns that LOADADDR/BASICSTUB do not exist —
+# expected, no driver is linked.
+LIB_PROBE_KECCAK      = $(BUILD_DIR)/mlkem-keccak-lib.prg
+LIB_PROBE_KECCAK_MAP  = $(BUILD_DIR)/mlkem-keccak-lib.map
+LIB_PROBE_KECCAK_PULL = -u mlkem_absorb -u mlkem_squeeze -u keccak_f1600 -u keccak_state -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
 
 # main.o MUST come first so `start` lands at $080D, matching SYS 2061.
 LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS)))
@@ -185,7 +196,8 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
-        check-harness-routing vectors help rig rig-full rig-turbo
+        check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
+        vectors help rig rig-full rig-turbo
 
 all: $(PRG)
 
@@ -249,6 +261,9 @@ lib-keccak: $(ARCHIVE_KECCAK) $(SHIPPED)
 $(LIB_PROBE): $(ARCHIVE) $(DRIVER_OBJS) $(CFG)
 	$(LD65) -C $(CFG) $(LIB_PROBE_PULL) -o $@ -m $(LIB_PROBE_MAP) $(DRIVER_OBJS) $(ARCHIVE)
 
+$(LIB_PROBE_KECCAK): $(ARCHIVE_KECCAK) $(TOBJ_DIR)/zp_config.o $(CFG)
+	$(LD65) -C $(CFG) $(LIB_PROBE_KECCAK_PULL) -o $@ -m $(LIB_PROBE_KECCAK_MAP) $(TOBJ_DIR)/zp_config.o $(ARCHIVE_KECCAK)
+
 $(ARCHIVE): $(LIB_OBJS) | $(LIB_DIR)
 	@rm -f $@
 	$(AR65) r $@ $(LIB_OBJS)
@@ -259,7 +274,7 @@ $(ARCHIVE_KECCAK): $(KECCAK_OBJS) | $(LIB_DIR)
 
 # Shipped alongside every archive: the public header, the consumer-assembled
 # ZP source (§6.2), the §8.1 placement header (a consumer needs
-# LIB_SHARED_SQTAB_BASE for its own §6.7 guard, and the header is the ONLY
+# LIB_SHARED_SQTAB_BASE for its own image guard, and the header is the ONLY
 # place the default lives), and the starter cfg fragment (§4).
 $(LIB_DIR)/mlkem.inc: $(SRC_DIR)/mlkem.inc | $(LIB_DIR)
 	@cp $< $@
@@ -289,8 +304,9 @@ check-archives: lib lib-keccak
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7424 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
 
-# §6.3 invalidation branch, both legs. Leg 1 alone is not a test: a guard that
-# has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
+# Repo-local configuration invalidation, both legs. Leg 1 alone is not a
+# test: a guard that has degraded to an unconditional rebuild passes it. Leg 2
+# is what catches that.
 check-staleness:
 	@$(TOOLS_DIR)/check_staleness.sh
 
@@ -306,12 +322,42 @@ check-prefix:
 	@$(MAKE) --no-print-directory lib lib-keccak >/dev/null
 	@$(TOOLS_DIR)/check_prefix.sh
 
-# Reports measured segment sizes so the §5 footprint equates can be refreshed
-# safe-direction (>= measured, rounded UP to the next 256-byte boundary).
-check-manifest: $(PRG) $(LIB_PROBE)
-	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py $(MAPFILE) $(LIB_PROBE_MAP) $(SRC_DIR)/lib_manifest.s
+# Contract §5 (1.2.3): each footprint equate a shipped archive's manifest
+# declares must be >= the PLACED SPAN of the segments it covers in a probe
+# link of THAT archive (internal alignment fill charged; gaps between and
+# padding before the segments not charged). Both member sets, each against its
+# own manifest member. Fails on an unsafe value; refresh safe-direction (>=
+# measured, rounded UP to the next 256-byte boundary).
+check-manifest: $(PRG) $(LIB_PROBE) $(LIB_PROBE_KECCAK)
+	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py --test-map $(MAPFILE) \
+	    --probe mlkem.a $(ARCHIVE) $(LIB_PROBE_MAP) \
+	    --probe mlkem-keccak.a $(ARCHIVE_KECCAK) $(LIB_PROBE_KECCAK_MAP)
 
-# §6.7 constraint 3: the image guard must be PROVEN to fire. Builds once with
+# §8.4: src/precalc_table.inc is a byte-for-byte copy of the contract's root
+# precalc_table.inc at a PINNED contract tag, read from the contract repo's
+# git objects — not the moving origin/HEAD (an upstream comment edit must not
+# turn this repo red) and not its working tree (any branch). A missing
+# contract checkout or ref FAILS rather than skipping. CONTRACT_DIR defaults
+# to the sibling of the MAIN checkout (via the git common dir), so it resolves
+# from a git worktree too.
+CONTRACT_DIR ?= $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../../c64-lib-contract)
+# Move this pin deliberately, when adopting a new contract tag.
+CONTRACT_PRECALC_REF ?= v1.2.2
+check-precalc:
+	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)" "$(CONTRACT_PRECALC_REF)"
+
+# Self-tests of the two checkers above, on hermetic fixtures (seconds, no
+# VICE, no build tree). A checker nobody tests can be switched off by a
+# one-line edit: each case names the mutant class it kills. The manifest
+# self-test also guards the WIRING — that `test:` still depends on
+# check-manifest, check-precalc and both self-tests, and that check-manifest
+# still probes both archives.
+check-manifest-selftest:
+	@$(PYTHON) $(TOOLS_DIR)/test_check_manifest.py
+check-precalc-selftest:
+	@$(TOOLS_DIR)/test_check_precalc.sh
+
+# Repo-local: the sqtab image guard must be PROVEN to fire. Builds once with
 # the sqtab window deliberately inside the image and requires the link to
 # fail, then restores the default configuration.
 check-sqtab-guard:
@@ -390,7 +436,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -468,10 +514,13 @@ help:
 	@echo "make rig-full    U64E hardware: rig_kat --full at 1 MHz, then the cycle counts"
 	@echo "make rig-turbo   U64E hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
-	@echo "make check-manifest  measured sizes vs §5 footprint equates"
+	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
+	@echo "make check-precalc   src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF (§8.4)"
+	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
+	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
-	@echo "make check-staleness §6.3 both legs, on the ZP, sqtab-base and Keccak-only knobs"
-	@echo "make check-sqtab-guard  §6.7: the image guard fires on a deliberate overrun"
+	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
+	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"
