@@ -22,7 +22,7 @@ built on; **Phase 2 is everything else** in FIPS 203:
 | Phase | Scope | State |
 |---|---|---|
 | **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
-| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 45/45 mutants killed; measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
+| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 48/48 mutants killed; measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
 P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
@@ -213,8 +213,11 @@ inputs, and decaps across valid and bit-flipped ciphertexts.
 different agent, from FIPS 203 and the oracle* — red against stubs before the
 implementer saw them — and then had to go red again against deliberate
 faults applied to the green tree (`tools/mutants/*.patch`, `tools/mutate.py`):
-**45 mutants — WP1 15, WP2 13, WP3 17 — all killed, each by the test the
-manifest names.** They include the brief's required set (a wrong ζ, an
+**48 mutants — WP1 15, WP2 13, WP3 18, P1 2 — all killed, each by the test
+the manifest names** (45 through v0.5.1; three came later from the hardware
+validation's adversarial review: a compare that leaks the mismatch count
+by one cycle per byte, one bit of Keccak's last round constant, and a
+sponge chunk size that ignores the length's high byte and livelocks). They include the brief's required set (a wrong ζ, an
 off-by-one reduction bound, a skipped and an early-exit rejection compare, a
 CBD sampler one byte short, a `bpl` on a count ≥ 128 — P1's real
 `keccak_clear` bug — a swapped `du`/`dv`, a missing final reduction) and, on
@@ -467,7 +470,7 @@ make test-sha3        # FIPS 202 KATs (make test-sha3-full for all 820)
 make test-ntt         # mod-3329 arithmetic and NTT, per layer (-full: the sweep)
 make test-sampler     # SampleNTT, CBD, ByteEncode/Decode12, Compress/Decompress
 make test-mlkem       # K-PKE + ML-KEM-768 vs ACVP, hazmat, CT decaps (-full: every vector)
-make test-mutants     # the 45-patch mutation gate (tools/mutants/manifest.json)
+make test-mutants     # the 48-patch mutation gate (tools/mutants/manifest.json)
 make bench            # cycle-exact Keccak-f[1600] measurement
 make bench-kem        # KeyGen / Encaps / Decaps + NTT cycles, Keccak share separated
 make bench-sampler    # WP2 sampler/codec cycles + constant-time check

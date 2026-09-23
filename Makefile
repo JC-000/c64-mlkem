@@ -419,7 +419,9 @@ bench-kem: $(PRG)
 # properties or test_mlkem's hazmat/hooks/timing suites), then the counts.
 # `rig-turbo` runs the same
 # --full set with U64 turbo on and reports what the CIA counts mean there;
-# the entry speed state is snapshotted and restored.
+# the entry speed state is snapshotted and restored. The rigs were proven
+# against the gate's wp3-cmp-mismatch-timing (rig_bench fails T1) and
+# wp3-cmp-acc-reset (rig_kat onebit fails) mutants on the U64E at 1 MHz.
 U64_HOST ?= 10.43.23.81
 RIG_MHZ ?= 48
 

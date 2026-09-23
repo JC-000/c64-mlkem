@@ -15,6 +15,26 @@ implementation, never by the implementer — the point is to prove the suite
 notices, not that the code is right. A patch that no longer applies after a
 refactor is a stale gate and is reported as a failure, not skipped.
 
+## P1 mutants (Keccak and sponge) — gate run, both KILLED
+
+P1 shipped without a mutation gate; these two came from the hardware
+validation's adversarial review (`hw/rig-validation`) and were written
+against its head. They are the gate's only faults below ML-KEM.
+
+| name | fault | suite | localising failure line |
+|---|---|---|---|
+| `p1-keccak-rc23-bit0` | `keccak_tables.inc` (generated; patched as a hand edit would be): RC[23] low byte `$08` → `$09`. One bit of the last round's iota | `make test-vice` | `all-zero input round 23 after iota: lane 0 (x=0,y=0): got f1258f7940e1dde6 want f1258f7940e1dde7` — rounds 0–22 and every other step pass; `test_sha3` and every KEM suite go red as well |
+| `p1-sponge-len-hi-ignored` | `sponge.s` chunk size: `lda mlkem_sponge_len+1 / bne done` loses the `bne` (2 `nop`), so a remaining length ≥ 256 is chunked by its low byte alone. Any length ≥ 256 is thereby worn down to a nonzero multiple of 256, where the chunk is n = 0 and absorb never advances — a **livelock** | `make test-sha3` | `c64_test_harness.transport.TimeoutError: No stopped event within 5.0s`, raised from `jsr(self.t, self.l["mlkem_absorb"])` after `SHA3_256ShortMsg` and `SHA3_512ShortMsg` pass |
+
+**A livelocking mutant is killed by the suite's timeout, not the gate's.**
+`mutate.py` puts no timeout on the test command; it relies on the harness
+`jsr()` timeout (5 s default in `test_sha3`), whose `TimeoutError` escapes
+`main()` inside the `ViceInstanceManager` block, so VICE is torn down and
+the test exits nonzero. Measured: 7 s from patch to kill including the
+build, no `x64sc` left running. A future livelock mutant needs its suite's
+timeout to be the short one — under a suite with a 900 s `JSR_TIMEOUT`
+(`test_mlkem`, `bench_*`) the same fault costs 15 minutes per call.
+
 ## Required WP1 mutants (NTT and field arithmetic) — gate run, all 15 KILLED
 
 `"test": "make test-ntt"`. Patches are written against `src/ntt.s` /
@@ -145,7 +165,7 @@ Rules: one fault per patch; the mutant must **build** (a mutant that fails to
 assemble tests nothing); never touch `tools/test_*.py` or `tools/*_ref.py`
 from a patch.
 
-## Required WP3 mutants (K-PKE and ML-KEM-768) — gate run, all 17 KILLED
+## Required WP3 mutants (K-PKE and ML-KEM-768) — gate run, all 18 KILLED
 
 Same manifest. Patches are written against `src/kem.s` as merged in 0996feb.
 Every `test` is `make test-mlkem MLKEM_ARGS="--only <suite>"` — the
@@ -176,6 +196,7 @@ the pointer table, the nonce counter, the A^T index, `check_t`).
 | `wp3-e1-nonce-reused` | *extra*: `dec kp_nonce` after each e1_i in `el_u`: e1_0 = e1_1 = e1_2 (N=3), e2 at N=4; +258 B pad | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 322 (got CA want DA)` — u_0 (bytes 0..319) is exact, u_1 is the first poly with the reused nonce |
 | `wp3-matrix-not-transposed` | *extra*: `encrypt_body` sets `kp_t = 0` — A instead of A^T for u | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 0 (got AC want 03)` |
 | `wp3-check-t-high-byte-only` | *extra*: `check_t` drops the low-byte test for hi = 13 (4 `nop`), accepting 3328..3583 | ekcheck | `... tcId 137 ...: accepted an ek with a coefficient >= q (t_hat[0][0] = 3330 >= q)` — 3330 = `$0D02` is exactly the value only the low-byte leg rejects |
+| `wp3-cmp-mismatch-timing` | *extra*, from the hardware validation's adversarial review (`ct-leak3`): `cmp_len` still ORs every byte of the full length, but a mismatching byte runs `sta cmp_acc / bne next` and a matching one `beq same / nop / bit $00` — the leak is the *count* of differing bytes: +1 cycle each from the path, +2 as linked, because the mismatch path's `bne next` ($1BFE → $1C01) also crosses a page. Either way T1 fails, so the kill does not depend on that page edge. The equal path costs exactly the green `ora`+`sta`, so a valid c measures the green count; `.res 6` before the proc and `.res 246` after the `rts` make it +256 B, so every later byte keeps its page offset (checked against the clean `labels.txt`: every label after `cmp_len` moves by exactly $100, none before it moves) | timing | `mlkem_decaps: constant-time in c (T1): valid c=29,597,879; c ^ bit 0 of byte 0=29,597,881; c ^ bit 7 of byte 1087=29,600,051` — the ONLY failure; valid equals the green count to the cycle, which is what makes it the subtle one. The byte-0 flip leaves m' intact, so c' differs from c in that one byte (+2); the byte-1087 flip changes m', so c' differs from c almost everywhere (+2,172 = 1,086 bytes × 2) |
 | `wp3-v-compress-10` | *extra*: v compressed and packed with d = 10 (u correct) | encaps | `mlkem_encaps [encapsulation tcId 26]: c differs at byte 960 (got 69 want F6)` — c1 exact, c2 is where it first differs; the C1 canary after c also trips because c2 grew to 320 B |
 
 What the run taught:
