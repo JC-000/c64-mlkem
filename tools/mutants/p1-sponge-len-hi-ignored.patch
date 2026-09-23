@@ -1,0 +1,12 @@
+--- a/src/sponge.s	2026-09-22 21:28:40
++++ b/src/sponge.s	2026-09-23 10:36:55
+@@ -227,7 +227,8 @@
+         sbc sponge_pos
+         sta sponge_n                ; avail; >= 1 because pos < rate always
+         lda mlkem_sponge_len+1
+-        bne done                    ; len >= 256 > avail, so n = avail
++        nop                         ; MUTANT: hi byte of len ignored
++        nop
+         lda mlkem_sponge_len+0
+         cmp sponge_n
+         bcs done                    ; len >= avail, so n = avail

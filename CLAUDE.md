@@ -35,8 +35,10 @@ below). No ML-DSA ever. No REU anywhere.
    **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
-   199 per-step Keccak checks; **45/45 mutants killed** (WP1 15, WP2 13,
-   WP3 17). All constant-time claims are measured cycle pins, not assertions.
+   199 per-step Keccak checks; **48/48 mutants killed** (WP1 15, WP2 13,
+   WP3 18, P1 2 — 45 at v0.5.1; the three hardware-validation adversary
+   mutants were added on `hw/rig-validation`). All constant-time claims are
+   measured cycle pins, not assertions.
 5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
 
 **The headline must not be softened:** Keccak is now inside the roadmap's
@@ -244,7 +246,19 @@ to an unconditional rebuild.
 ## Tests
 
 - `test_*.py` = runnable-by-CI logic tests; `rig_*.py` = needs real hardware.
-  P1 is all VICE, so everything is `test_*.py`.
+  The rigs (`make rig` / `rig-full` / `rig-turbo`, never in `make test`) run
+  the same KATs and the cycle counts on the U64E through `tools/rig_common.py`,
+  which parks a mailbox dispatcher on `idle` because the Ultimate has no
+  `jsr()`. **Host reads of C64 RAM steal CPU cycles on the U64E** (fw 3.15):
+  about 10 cycles + ~1.15 cycles per byte for each `read_bytes`, so a 5 ms
+  poll loop added +1.5k–2.2k to a Keccak x8, differently every run.
+  Non-memory REST calls (config, info) steal nothing (adversarial review,
+  2026-09-22). Never poll inside a measurement window — `quiet_s` exists
+  for that; rig_bench's poll probe reports the effect but does not gate on it.
+  The rigs were proven on the U64E (fw 3.15, 1 MHz) against two mutants from
+  the gate: `wp3-cmp-mismatch-timing` (rig_bench T1: tampered decaps +2 /
+  +2,172 cycles over valid) and `wp3-cmp-acc-reset` (rig_kat onebit: the
+  valid key K' returned for a one-bit c1 tamper).
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.

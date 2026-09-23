@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""rig_bench.py — cycle-exact cost of Keccak-f[1600] and ML-KEM-768 on Ultimate 64 Elite.
+
+Measures the exact cycle count of the 6502 code using the CIA1 Timer A+B
+chained 32-bit phi2 down-counter. At stock speed (1 MHz), the count must
+match the VICE emulator numbers exactly. This is because the measurement
+window blanks the display and syncs two frames (eliminating badline DMA
+variations), masks IRQs inside the window, and runs on a deterministic
+CPU cycle count independent of PAL/NTSC timing.
+
+HOST POLLS STEAL CYCLES ON THE U64E. Measured: Keccak x8 polled every 5 ms
+inside its window read +1,597 / +1,612 / +2,156 cycles over the quiet
+2,717,504, and not reproducibly. So every measurement is started and then
+left alone for 1.05x its expected duration + 0.5 s before the first
+completion poll (quiet_s). If a count ever runs longer than that, the polls
+land inside the window and the count goes non-reproducible — which the
+stability gate reports as a FAIL rather than a number. The probe section
+re-measures that effect on every run as information only (not gated).
+
+At --mhz N > 1 (U64 turbo) the CIA still counts the ~1 MHz system clock
+while the CPU runs faster, so the counts are ticks, not CPU cycles; the rig
+then asserts only output correctness and reproducibility, and prints the
+VICE/ticks ratio as information.
+
+Requires U64_HOST (the bench U64E is 10.43.23.81); not part of `make test`.
+Usage: python3 tools/rig_bench.py [--mhz N] [--keccak-only]
+Honors C64_SKIP_BUILD=1 and MLKEM_BUILD_DIR (see rig_common.py).
+"""
+
+import argparse
+import json
+import os
+import random
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from bench_keccak import build_thunk, SPIN_EXPECTED
+import keccak_ref as KR
+import mlkem_ref as M
+from rig_common import Rig, RigError, build_if_needed, load_labels, VECTOR_DIR
+from c64_test_harness import read_bytes, write_bytes
+
+VICE_KECCAK = 339_688
+VICE = {
+    "mlkem_keygen": 21_801_702,
+    "mlkem_encaps": 24_880_455,
+    "mlkem_decaps": 29_597_879,
+}
+PAL_HZ = 985_248
+CAL_QUIET_S = 0.2       # > 3 PAL frames of bench_sync_frame + the window
+
+BUF_EK = 0x6000
+BUF_DK = 0x6500
+BUF_CT = 0x7000
+BUF_KEY = 0x7E80
+BUF_SEED = 0x7EC0
+BUF_Z = 0x7F00
+
+
+def measure(rig, target, repeat=1, quiet_s=0.0, cadence=0.05, timeout=300.0, setup=None):
+    if setup:
+        setup()
+    thunk = build_thunk(rig.l, target, repeat)
+    rig.run_thunk(thunk, timeout=timeout, quiet_s=quiet_s, cadence=cadence)
+    return int.from_bytes(read_bytes(rig.t, rig.l["bench_cycles"], 4), "little")
+
+
+def measure_stable(rig, target, repeat=1, tries=3, quiet_s=0.0, cadence=0.05, timeout=300.0, setup=None, after=None):
+    if setup:
+        setup()
+    measure(rig, target, repeat, quiet_s, cadence, timeout, setup=None)
+    if after:
+        after()
+    vals = []
+    for _ in range(tries):
+        if setup:
+            setup()
+        vals.append(measure(rig, target, repeat, quiet_s, cadence, timeout, setup=None))
+        if after:
+            after()
+    return vals[0], len(set(vals)) == 1, vals
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Cycle-exact benchmark on Ultimate 64 Elite")
+    parser.add_argument("--mhz", type=int, default=1, help="CPU speed in MHz (default 1)")
+    parser.add_argument("--keccak-only", action="store_true", help="Skip ML-KEM measurements")
+    args = parser.parse_args()
+
+    build_if_needed()
+
+    rig = Rig(load_labels(0x6000, 0x8400), mhz=args.mhz)
+    with rig:
+        print("Calibration")
+        # Even these short windows need a quiet host: the thunk spends up to
+        # three frames (~60 ms) in bench_sync_frame first, and a completion
+        # poll that lands in the ~1.3 ms spin window steals cycles from it
+        # (seen on the U64E: an otherwise exact calibration went unstable).
+        overhead, st_o, vals_o = measure_stable(rig, None, quiet_s=CAL_QUIET_S)
+        spin_raw, st_s, vals_s = measure_stable(rig, "bench_spin_1000", quiet_s=CAL_QUIET_S)
+        spin = spin_raw - overhead
+        print(f"  overhead={overhead} {vals_o}, spin={spin} (expected {SPIN_EXPECTED}) raw {vals_s}")
+
+        if args.mhz == 1:
+            if not (st_o and st_s) or spin != SPIN_EXPECTED:
+                print(f"FAIL: calibration failed (stable: overhead {st_o}, spin {st_s}). "
+                      f"Not reporting numbers.")
+                return 1
+            print("  calibration OK\n")
+        else:
+            print("  (turbo: skipping calibration gate)\n")
+
+        q_keccak = VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
+        print("Keccak-f[1600]")
+        # Every timed permutation starts from a fixed state and its result is
+        # checked against keccak_ref (pinned by make test-ref): a count is
+        # only reported for a permutation that computed the right thing.
+        ks = rig.l["keccak_state"]
+        start = bytes(random.Random(0xF1600).randrange(256) for _ in range(200))
+        want1 = KR.to_bytes(KR.permute(KR.from_bytes(start)))
+        a8 = KR.from_bytes(start)
+        for _ in range(8):
+            a8 = KR.permute(a8)
+        want8 = KR.to_bytes(a8)
+        kruns = {"ok": 0, "bad": 0}
+
+        def set_state():
+            write_bytes(rig.t, ks, start)
+
+        def check_state(want):
+            def after():
+                kruns["ok" if read_bytes(rig.t, ks, 200) == want else "bad"] += 1
+            return after
+
+        x1_raw, st_1, v1 = measure_stable(rig, "keccak_f1600", tries=3, quiet_s=q_keccak,
+                                          setup=set_state, after=check_state(want1))
+        x1 = x1_raw - overhead
+        # The x8 window is 8x as long: its quiet time must be too, or the
+        # completion polls land inside the window and steal cycles.
+        q_keccak8 = 8 * VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
+        x8_raw, st_8, v8 = measure_stable(rig, "keccak_f1600", repeat=8, tries=2, quiet_s=q_keccak8,
+                                          setup=set_state, after=check_state(want8))
+        x8 = x8_raw - overhead
+        print(f"  x1={x1} (stable={st_1}, raw {v1}), x8={x8} (stable={st_8}, raw {v8})")
+        print(f"  state after the permutation(s) == keccak_ref: {kruns['ok']} of "
+              f"{kruns['ok'] + kruns['bad']} runs")
+
+        # 4 x1 runs + 3 x8 runs, warm-ups included.
+        if kruns["bad"] or kruns["ok"] != 7:
+            print("FAIL: keccak_f1600 computed a wrong state; Keccak count withheld.")
+            return 1
+        if not (st_1 and st_8):
+            print("FAIL: Keccak measurement not reproducible.")
+            return 1
+        if args.mhz == 1:
+            if x1 != VICE_KECCAK or x8 != 8 * VICE_KECCAK:
+                print(f"FAIL: Keccak mismatch. x1={x1} (VICE {VICE_KECCAK}, diff {x1 - VICE_KECCAK:+}), "
+                      f"x8={x8} (VICE {8*VICE_KECCAK}, diff {x8 - 8 * VICE_KECCAK:+})")
+                return 1
+            print(f"  Keccak-f[1600] = {x1:,} cycles, EXACT match with VICE\n")
+        else:
+            print(f"  (turbo: CIA ticks, not CPU cycles: VICE/x1 = {VICE_KECCAK / max(x1, 1):.4f}, "
+                  f"VICE*8/x8 = {8 * VICE_KECCAK / max(x8, 1):.4f})\n")
+
+        # Informational, never gated: whether host polls steal cycles is a
+        # property of the device/harness, not of the library. quiet_s above
+        # is what keeps the gated counts clean either way.
+        print("Poll-perturbation probe (informational)")
+        x8_poll_raw, _, _ = measure_stable(rig, "keccak_f1600", repeat=8, tries=1, quiet_s=0.0, cadence=0.005)
+        x8_poll = x8_poll_raw - overhead
+        print(f"  net={x8_poll}, quiet_net={x8}, diff={x8_poll - x8}\n")
+
+        if args.keccak_only:
+            return 0
+
+        print("ML-KEM-768 (ACVP tcId 1)")
+        with open(os.path.join(VECTOR_DIR, "ML-KEM-768-keyGen-FIPS203.json")) as fh:
+            kg = [t for g in json.load(fh)["testGroups"] for t in g["tests"]][0]
+        with open(os.path.join(VECTOR_DIR, "ML-KEM-768-encapDecap-FIPS203.json")) as fh:
+            ed = {g["function"]: g["tests"] for g in json.load(fh)["testGroups"]}
+        en = ed["encapsulation"][0]
+        de = ed["decapsulation"][0]
+        d, z = bytes.fromhex(kg["d"]), bytes.fromhex(kg["z"])
+        ek_en, m_en = bytes.fromhex(en["ek"]), bytes.fromhex(en["m"])
+        dk_de, c_de = bytes.fromhex(de["dk"]), bytes.fromhex(de["c"])
+
+        # Expected outputs straight from the ACVP JSON — not from the model.
+        expected = {
+            "mlkem_keygen": (bytes.fromhex(kg["ek"]), bytes.fromhex(kg["dk"])),
+            "mlkem_encaps": (bytes.fromhex(en["k"]), bytes.fromhex(en["c"])),
+            "mlkem_decaps": bytes.fromhex(de["k"]),
+        }
+        # The model must agree with the vectors, or the vector file is not
+        # the one test-ref pinned.
+        if (M.mlkem_keygen(d, z) != expected["mlkem_keygen"]
+                or M.mlkem_encaps(ek_en, m_en) != expected["mlkem_encaps"]
+                or M.mlkem_decaps(dk_de, c_de) != expected["mlkem_decaps"]):
+            print("FATAL: mlkem_ref disagrees with the ACVP tcId 1 vectors")
+            return 1
+
+        def check_outputs(fn, exp):
+            if fn == "mlkem_keygen":
+                return (read_bytes(rig.t, BUF_EK, 1184), read_bytes(rig.t, BUF_DK, 2400)) == exp
+            elif fn == "mlkem_encaps":
+                return (read_bytes(rig.t, BUF_KEY, 32), read_bytes(rig.t, BUF_CT, 1088)) == exp
+            elif fn == "mlkem_decaps":
+                return read_bytes(rig.t, BUF_KEY, 32) == exp
+            raise ValueError(fn)
+
+        def setup_kg():
+            write_bytes(rig.t, BUF_SEED, d)
+            write_bytes(rig.t, BUF_Z, z)
+            write_bytes(rig.t, BUF_EK, bytes([0xEE] * 1184))
+            write_bytes(rig.t, BUF_DK, bytes([0xEE] * 2400))
+            rig.ptr("mlkem_arg_seed", BUF_SEED)
+            rig.ptr("mlkem_arg_z", BUF_Z)
+            rig.ptr("mlkem_arg_ek", BUF_EK)
+            rig.ptr("mlkem_arg_dk", BUF_DK)
+
+        def setup_en():
+            write_bytes(rig.t, BUF_EK, ek_en)
+            write_bytes(rig.t, BUF_SEED, m_en)
+            write_bytes(rig.t, BUF_CT, bytes([0xEE] * 1088))
+            write_bytes(rig.t, BUF_KEY, bytes([0xEE] * 32))
+            rig.ptr("mlkem_arg_ek", BUF_EK)
+            rig.ptr("mlkem_arg_seed", BUF_SEED)
+            rig.ptr("mlkem_arg_ct", BUF_CT)
+            rig.ptr("mlkem_arg_key", BUF_KEY)
+
+        def setup_de():
+            write_bytes(rig.t, BUF_DK, dk_de)
+            write_bytes(rig.t, BUF_CT, c_de)
+            write_bytes(rig.t, BUF_KEY, bytes([0xEE] * 32))
+            rig.ptr("mlkem_arg_dk", BUF_DK)
+            rig.ptr("mlkem_arg_ct", BUF_CT)
+            rig.ptr("mlkem_arg_key", BUF_KEY)
+
+        results = {}
+        failed = False
+
+        for fn, label, setup_fn, exp in [
+            ("mlkem_keygen", "mlkem_keygen", setup_kg, expected["mlkem_keygen"]),
+            ("mlkem_encaps", "mlkem_encaps", setup_en, expected["mlkem_encaps"]),
+            ("mlkem_decaps", "mlkem_decaps", setup_de, expected["mlkem_decaps"]),
+        ]:
+            q = VICE[fn] / PAL_HZ / args.mhz * 1.05 + 0.5
+            runs = {"ok": 0, "bad": 0}
+
+            def after_hook():
+                runs["ok" if check_outputs(fn, exp) else "bad"] += 1
+
+            v, st, vals = measure_stable(rig, label, tries=2, setup=setup_fn,
+                                         quiet_s=q, cadence=0.5, timeout=300.0,
+                                         after=after_hook)
+            net = v - overhead
+            # A count for a call that computed the wrong thing is never
+            # reported. 3 = the warm-up plus tries=2, every one checked.
+            if runs["bad"] or runs["ok"] != 3:
+                print(f"  FAIL {fn}: output vs ACVP tcId 1 wrong in {runs['bad']} of "
+                      f"{runs['ok'] + runs['bad']} runs; count withheld")
+                failed = True
+                continue
+            if not st:
+                print(f"  FAIL {fn}: not reproducible {[x - overhead for x in vals]}")
+                failed = True
+                continue
+            results[fn] = net
+            if args.mhz == 1:
+                ok = net == VICE[fn]
+                print(f"  {fn:15} {net:>12,} cycles   VICE {VICE[fn]:>12,}   diff {net - VICE[fn]:+,}"
+                      f"   outputs == ACVP (3/3)   {'EXACT' if ok else 'FAIL'}")
+                failed |= not ok
+            else:
+                print(f"  {fn:15} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
+                      f"   VICE {VICE[fn]:,}   VICE/ticks {VICE[fn] / net:.4f}   outputs == ACVP (3/3)")
+
+        if not failed and "mlkem_decaps" in results:
+            z_de = dk_de[2368:2400]
+            c1 = bytearray(c_de)
+            c1[0] ^= 1
+            c2 = bytearray(c_de)
+            c2[1087] ^= 1 << 7
+            for name, ct_mod in [("c1 bit 0", c1), ("c2 bit 7", c2)]:
+                want_k = M.J(z_de + bytes(ct_mod))
+                if want_k == expected["mlkem_decaps"]:
+                    print(f"  FATAL: expected key for {name} matches valid key")
+                    return 1
+
+                def setup_mod(ct=ct_mod):
+                    write_bytes(rig.t, BUF_DK, dk_de)
+                    write_bytes(rig.t, BUF_CT, ct)
+                    write_bytes(rig.t, BUF_KEY, bytes([0xEE] * 32))
+                    rig.ptr("mlkem_arg_dk", BUF_DK)
+                    rig.ptr("mlkem_arg_ct", BUF_CT)
+                    rig.ptr("mlkem_arg_key", BUF_KEY)
+
+                # The tampered ct must yield the implicit-rejection key
+                # J(z||c'), NOT the valid K: comparing against the valid K
+                # here would pass exactly the decaps that ignores the tamper.
+                runs = {"ok": 0, "bad": 0}
+
+                def after_mod(want=want_k, runs=runs):
+                    runs["ok" if check_outputs("mlkem_decaps", want) else "bad"] += 1
+
+                q = VICE["mlkem_decaps"] / PAL_HZ / args.mhz * 1.05 + 0.5
+                v, st, vals = measure_stable(rig, "mlkem_decaps", tries=2, setup=setup_mod,
+                                             quiet_s=q, cadence=0.5, timeout=300.0,
+                                             after=after_mod)
+                net = v - overhead
+                if runs["bad"] or runs["ok"] != 3:
+                    print(f"  FAIL decaps {name}: K != J(z||c') (implicit rejection) in {runs['bad']} of "
+                          f"{runs['ok'] + runs['bad']} runs; count withheld")
+                    failed = True
+                    continue
+                if not st:
+                    print(f"  FAIL {name}: not reproducible {[x - overhead for x in vals]}")
+                    failed = True
+                    continue
+                results[name] = net
+                if args.mhz == 1:
+                    ok = net == results["mlkem_decaps"]
+                    print(f"  {name:15} {net:>12,} cycles   valid {results['mlkem_decaps']:>12,}   diff {net - results['mlkem_decaps']:+,}"
+                          f"   K == J(z||c') (3/3)   {'CONSTANT-TIME' if ok else 'FAIL (T1: decaps time depends on c)'}")
+                    failed |= not ok
+                else:
+                    print(f"  {name:15} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
+                          f"   valid {results['mlkem_decaps']:,}   diff {net - results['mlkem_decaps']:+,}   {'CONSTANT-TIME' if net == results['mlkem_decaps'] else 'INFO'}")
+
+        if failed:
+            print("\nFAIL: see above.")
+            return 1
+
+        if args.mhz != 1:
+            # Measured on the U64E at 48: VICE/ticks = 47.00 for every
+            # call, i.e. the CIA ticks once per 47 CPU cycles there and the
+            # CPU runs the same cycle count as at 1 MHz. Informational only.
+            print("\n(turbo: counts above are CIA ticks; no cycle summary)")
+            return 0
+        print("\nSummary")
+        print("-" * 60)
+        print(f"  {'Function':<15} {'Cycles':>12} {'VICE Ref':>12} {'Diff':>12}")
+        print("-" * 60)
+        for fn in ("mlkem_keygen", "mlkem_encaps", "mlkem_decaps"):
+            net = results[fn]
+            ref = VICE[fn]
+            diff = net - ref
+            print(f"  {fn:<15} {net:>12,} {ref:>12,} {diff:>12,}")
+        if args.mhz == 1:
+            for name in ("c1 bit 0", "c2 bit 7"):
+                if name in results:
+                    net = results[name]
+                    ref = results["mlkem_decaps"]
+                    diff = net - ref
+                    print(f"  {name:<15} {net:>12,} {ref:>12,} {diff:>12,}")
+        print("-" * 60)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -197,7 +197,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
-        vectors help
+        vectors help rig rig-full rig-turbo
 
 all: $(PRG)
 
@@ -455,6 +455,34 @@ bench-sampler: $(PRG)
 bench-kem: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_kem.py
 
+# --- hardware rigs (U64E; NOT part of `test` -- CI has no hardware) --------
+# tools/rig_*.py drive the real machine through the harness DeviceLock and
+# the write_bytes/read_bytes funnel (tools/rig_common.py). `rig` is the default
+# depth at stock 1 MHz: KATs, then the cycle counts, which must equal VICE's
+# exactly, plus the decaps constant-time pin. `rig-full` runs rig_kat --full
+# at 1 MHz (~50 min: all SHA-3 ShortMsg, all ACVP keyGen/encaps/decaps/
+# key-check vectors, the one-bit ciphertexts; NOT test_sha3's streaming
+# properties or test_mlkem's hazmat/hooks/timing suites), then the counts.
+# `rig-turbo` runs the same
+# --full set with U64 turbo on and reports what the CIA counts mean there;
+# the entry speed state is snapshotted and restored. The rigs were proven
+# against the gate's wp3-cmp-mismatch-timing (rig_bench fails T1) and
+# wp3-cmp-acc-reset (rig_kat onebit fails) mutants on the U64E at 1 MHz.
+U64_HOST ?= 10.43.23.81
+RIG_MHZ ?= 48
+
+rig: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
+
+rig-full: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
+
+rig-turbo: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full --mhz $(RIG_MHZ)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py --mhz $(RIG_MHZ)
+
 # Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
 # constants from the validated models.
 tables:
@@ -482,6 +510,9 @@ help:
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
+	@echo "make rig         U64E hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=...)"
+	@echo "make rig-full    U64E hardware: rig_kat --full at 1 MHz, then the cycle counts"
+	@echo "make rig-turbo   U64E hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
 	@echo "make check-precalc   src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF (§8.4)"
