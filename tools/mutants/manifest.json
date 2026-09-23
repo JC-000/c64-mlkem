@@ -383,7 +383,7 @@
       "patch": "wp3-cmp-mismatch-timing.patch",
       "test": "make test-mlkem MLKEM_ARGS=\"--only timing\"",
       "kill": "tools/test_mlkem.py --only timing",
-      "description": "EXTRA (hardware-validation adversary, `ct-leak3`): cmp_len still OR-accumulates every byte of the full 1,088 B (functionally correct, no early exit), but a mismatching byte takes a different path (`beq same` / `sta cmp_acc` / `bne next`) that costs one more cycle than a matching one (two as linked: `bne next` also crosses a page): decaps time leaks the NUMBER of differing bytes. The equal-byte path is cycle-identical to the original ora+sta, so a valid c measures exactly the green count; a 6 B lead-in plus a 246 B pad make the patch +256 B, so every later byte keeps its page offset.",
+      "description": "EXTRA (hardware-validation adversary, `ct-leak3`): cmp_len still OR-accumulates every byte of the full 1,088 B (functionally correct, no early exit), but a mismatching byte takes a different path (`beq same` / `sta cmp_acc` / `bne next`) that costs one more cycle than a matching one (two as linked: `bne next` also crosses a page): decaps time leaks the NUMBER of differing bytes. The equal-byte path is cycle-identical to the original ora+sta, so a valid c measures exactly the green count; a 6 B lead-in plus a 246 B pad make the patch +256 B, so every later byte keeps its page offset. Under `make test` check-manifest also fails, because the pad puts resident bytes above the declared 7,424.",
       "expect": "mlkem_decaps: constant-time in c (T1)",
       "class": "timing"
     },
@@ -401,8 +401,8 @@
       "patch": "p1-sponge-len-hi-ignored.patch",
       "test": "make test-sha3",
       "kill": "tools/test_sha3.py (harness jsr timeout)",
-      "description": "P1 (hardware-validation adversary, `k-chunk-hi`): the sponge chunk size ignores the high byte of the remaining length (`bne done` -> 2 nop). Any len >= 256 is worn down to a nonzero multiple of 256, where the chunk is n = 0 and absorb never advances: a LIVELOCK. The kill is the harness's 5 s jsr timeout on mlkem_absorb (VICE is torn down by the suite's ViceInstanceManager); mutate.py has no timeout of its own.",
-      "expect": "No stopped event within 5.0s",
+      "description": "P1 (hardware-validation adversary, `k-chunk-hi`): the sponge chunk size ignores the high byte of the remaining length (`bne done` -> 2 nop). Any len >= 256 is worn down to a nonzero multiple of 256, where the chunk is n = 0 and absorb never advances: a LIVELOCK. The kill is the harness's 5 s jsr timeout on mlkem_absorb (expect pins that traceback frame, so a timeout at any other call site is a non-local kill) (VICE is torn down by the suite's ViceInstanceManager); mutate.py has no timeout of its own.",
+      "expect": "self.l[\"mlkem_absorb\"]",
       "class": "length"
     }
   ]
