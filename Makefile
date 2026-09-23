@@ -333,15 +333,18 @@ check-manifest: $(PRG) $(LIB_PROBE) $(LIB_PROBE_KECCAK)
 	    --probe mlkem.a $(ARCHIVE) $(LIB_PROBE_MAP) \
 	    --probe mlkem-keccak.a $(ARCHIVE_KECCAK) $(LIB_PROBE_KECCAK_MAP)
 
-# §8.4: src/precalc_table.inc is a byte-for-byte copy of the contract HEAD's
-# root precalc_table.inc, compared against the contract repo's origin/HEAD —
-# not its working tree, which may sit on any branch. A missing contract
-# checkout FAILS rather than skipping: an absent comparand is not a pass.
-# CONTRACT_DIR defaults to the sibling of the MAIN checkout (via the git
-# common dir), so it resolves from a git worktree too.
+# §8.4: src/precalc_table.inc is a byte-for-byte copy of the contract's root
+# precalc_table.inc at a PINNED contract tag, read from the contract repo's
+# git objects — not the moving origin/HEAD (an upstream comment edit must not
+# turn this repo red) and not its working tree (any branch). A missing
+# contract checkout or ref FAILS rather than skipping. CONTRACT_DIR defaults
+# to the sibling of the MAIN checkout (via the git common dir), so it resolves
+# from a git worktree too.
 CONTRACT_DIR ?= $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../../c64-lib-contract)
+# Move this pin deliberately, when adopting a new contract tag.
+CONTRACT_PRECALC_REF ?= v1.2.2
 check-precalc:
-	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)"
+	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)" "$(CONTRACT_PRECALC_REF)"
 
 # §6.7 constraint 3: the image guard must be PROVEN to fire. Builds once with
 # the sqtab window deliberately inside the image and requires the link to
