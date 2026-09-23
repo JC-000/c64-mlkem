@@ -46,6 +46,7 @@ VICE = {
     "mlkem_decaps": 29_597_879,
 }
 PAL_HZ = 985_248
+CAL_QUIET_S = 0.2       # > 3 PAL frames of bench_sync_frame + the window
 
 BUF_EK = 0x6000
 BUF_DK = 0x6500
@@ -90,14 +91,19 @@ def main():
     rig = Rig(load_labels(0x6000, 0x8400), mhz=args.mhz)
     with rig:
         print("Calibration")
-        overhead, st_o, _ = measure_stable(rig, None)
-        spin_raw, st_s, _ = measure_stable(rig, "bench_spin_1000")
+        # Even these short windows need a quiet host: the thunk spends up to
+        # three frames (~60 ms) in bench_sync_frame first, and a completion
+        # poll that lands in the ~1.3 ms spin window steals cycles from it
+        # (seen on the U64E: an otherwise exact calibration went unstable).
+        overhead, st_o, vals_o = measure_stable(rig, None, quiet_s=CAL_QUIET_S)
+        spin_raw, st_s, vals_s = measure_stable(rig, "bench_spin_1000", quiet_s=CAL_QUIET_S)
         spin = spin_raw - overhead
-        print(f"  overhead={overhead}, spin={spin} (expected {SPIN_EXPECTED})")
+        print(f"  overhead={overhead} {vals_o}, spin={spin} (expected {SPIN_EXPECTED}) raw {vals_s}")
 
         if args.mhz == 1:
             if not (st_o and st_s) or spin != SPIN_EXPECTED:
-                print("FAIL: calibration failed. Not reporting numbers.")
+                print(f"FAIL: calibration failed (stable: overhead {st_o}, spin {st_s}). "
+                      f"Not reporting numbers.")
                 return 1
             print("  calibration OK\n")
         else:
@@ -105,14 +111,14 @@ def main():
 
         q_keccak = VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
         print("Keccak-f[1600]")
-        x1_raw, st_1, _ = measure_stable(rig, "keccak_f1600", tries=3, quiet_s=q_keccak)
+        x1_raw, st_1, v1 = measure_stable(rig, "keccak_f1600", tries=3, quiet_s=q_keccak)
         x1 = x1_raw - overhead
         # The x8 window is 8x as long: its quiet time must be too, or the
         # completion polls land inside the window and steal cycles.
         q_keccak8 = 8 * VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
-        x8_raw, st_8, _ = measure_stable(rig, "keccak_f1600", repeat=8, tries=2, quiet_s=q_keccak8)
+        x8_raw, st_8, v8 = measure_stable(rig, "keccak_f1600", repeat=8, tries=2, quiet_s=q_keccak8)
         x8 = x8_raw - overhead
-        print(f"  x1={x1} (stable={st_1}), x8={x8} (stable={st_8})")
+        print(f"  x1={x1} (stable={st_1}, raw {v1}), x8={x8} (stable={st_8}, raw {v8})")
 
         if not (st_1 and st_8):
             print("FAIL: Keccak measurement not reproducible.")
