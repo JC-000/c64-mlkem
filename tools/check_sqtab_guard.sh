@@ -1,6 +1,6 @@
 #!/bin/sh
-# check_sqtab_guard.sh — contract §6.7 constraint 3: the image guard must be
-# PROVEN to fire in the placing configuration.
+# check_sqtab_guard.sh — repo-local: the sqtab image guard must be PROVEN to
+# fire in the placing configuration.
 #
 # src/main.s (ships in no archive) asserts __MAIN_LAST__ <= LIB_SHARED_SQTAB_BASE
 # with lderror. A guard that is present but never fires is indistinguishable
@@ -10,7 +10,7 @@
 # configuration and requires it to pass.
 #
 # LIB_SHARED_SQTAB_BASE rides CONTRACT_DEFINES, so each build below changes the
-# §6.3 configuration signature and starts from a clean object tree; the last
+# build's configuration signature and starts from a clean object tree; the last
 # step leaves the tree in the default configuration.
 set -u
 cd "$(dirname "$0")/.."
@@ -20,12 +20,12 @@ MSG='image overruns the sqtab window'
 out=$(make CONTRACT_DEFINES="-D LIB_SHARED_SQTAB_BASE=0x0900" all 2>&1)
 rc=$?
 if [ "$rc" -eq 0 ]; then
-    echo "FAIL: link SUCCEEDED with sqtab at 0x0900 inside the image — the §6.7 guard does not fire"
+    echo "FAIL: link SUCCEEDED with sqtab at 0x0900 inside the image — the image guard does not fire"
     make all >/dev/null 2>&1
     exit 1
 fi
 if ! printf '%s' "$out" | grep -q "$MSG"; then
-    echo "FAIL: link failed, but not on the §6.7 guard's message ('$MSG'):"
+    echo "FAIL: link failed, but not on the image guard's message ('$MSG'):"
     printf '%s\n' "$out" | tail -5
     make all >/dev/null 2>&1
     exit 1
@@ -38,4 +38,4 @@ if ! make all >/dev/null 2>&1; then
 fi
 [ -f build/mlkem.prg ] || { echo "FAIL: build/mlkem.prg missing after the default rebuild"; exit 1; }
 echo "  default leg ok: image fits below LIB_SHARED_SQTAB_BASE"
-echo "check-sqtab-guard: OK (§6.7 constraint 3, guard proven to fire)"
+echo "check-sqtab-guard: OK (image guard proven to fire)"
