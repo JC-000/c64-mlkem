@@ -2,9 +2,10 @@
 # check_staleness.sh — repo-local configuration invalidation, both legs, on
 # every §6.2 knob this repo honors.
 #
-# A knob a target CAN honor must invalidate whatever it reconfigures. The failure it guards against is silent: over a warm tree make
-# sees no reason to rebuild, exits 0, and ships the previously-configured
-# artifact. Measured in this repo before the fix.
+# A knob a target CAN honor must invalidate whatever it reconfigures. The
+# failure it guards against is silent: over a warm tree make sees no reason to
+# rebuild, exits 0, and ships the previously-configured artifact. Measured in
+# this repo before the fix.
 #
 # BOTH legs are required for every knob: a guard which has degraded to an
 # unconditional rebuild still passes a check exercising only leg 1. The check

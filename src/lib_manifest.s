@@ -20,9 +20,9 @@
 ;                    masks are 0 and no §8.4 row is emitted. §6.4 forbids one
 ;                    manifest describing two member sets; this is the
 ;                    nist-curves per-variant shape. The Makefile REJECTS
-;                    MLKEM_KECCAK_ONLY in CONTRACT_DEFINES at parse time
-;                    (a consumer cannot honor it; it
-;                    only names a member set the lib-keccak target selects).
+;                    MLKEM_KECCAK_ONLY in CONTRACT_DEFINES at parse time (a
+;                    consumer cannot honor it; it only names a member set the
+;                    lib-keccak target selects).
 ;                    `make check-archives` pins both manifests with od65.
 ;
 ; §5 safe-direction rule: RESIDENT_BYTES and COLD_BYTES MUST each be >= the
@@ -124,7 +124,8 @@ LIB_MLKEM_REU_BANKS_USED = 0
 ; sharing the table end up with disjoint masks and the consumer's
 ; double-ownership assert is satisfiable. SHARED_SQTAB_INIT reaches this TU via
 ; CONTRACT_DEFINES (every archive member) and is in the build's invalidation
-; signature (`make check-staleness`), which is what §6.4 needs for the manifest to describe the archive.
+; signature (`make check-staleness`), which is what §6.4 needs for the
+; manifest to describe the archive.
 .ifdef MLKEM_KECCAK_ONLY
   _OWN_SQTAB = 0                        ; mlkem-keccak.a: no multiply, no table
 .elseif .defined(SHARED_SQTAB_INIT)
@@ -176,7 +177,7 @@ LIB_MLKEM_SHARED_CONSUMES = LIB_SHARED_PRIMITIVES_SQTAB
 ; family is ever emitted, and `make check-prefix` fails the build if a bare
 ; form leaks. This is §8.4's own zero-consumer carve-out for the bare
 ; LIB_PRECALC_* triple, which it satisfies by defining LIB_NO_BARE_EXPORTS in
-; the enumerating TU, .ifndef-guarded.
+; the enumerating TU, .ifndef-guarded (see docs/contract-p2-alignment.md §5).
 .ifndef LIB_NO_BARE_EXPORTS
 LIB_NO_BARE_EXPORTS = 1
 .endif

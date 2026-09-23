@@ -53,17 +53,19 @@ CONTRACT_ZP_DEFINES ?=
 # second as the objects it should invalidate compares as not-newer, so nothing
 # rebuilds. Measured here — stamp and object both at mtime 1787521864, content
 # changed, zero ca65 invocations.
-# Both properties matter. A guard which has quietly degraded to an unconditional rebuild still passes a check that only exercises
-# the change-rebuilds leg, which is why `make check-staleness` asserts both.
+# Both properties matter. A guard which has quietly degraded to an
+# unconditional rebuild still passes a check that only exercises the
+# change-rebuilds leg, which is why `make check-staleness` asserts both.
 CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
 CONFIG_STAMP = build/.config-sig
 
-# Rejected, not invalidated. MLKEM_KECCAK_ONLY is not a consumer knob: it names the
-# member set of mlkem-keccak.a and is set by the lib-keccak target itself, on
-# its own manifest object (build/kobj). Reaching every archive member through
-# CONTRACT_DEFINES is something no target here can honor — the full archive's
-# manifest would then describe a member set it does not ship (§6.4) — so it
-# is refused at parse time rather than silently producing a lying mlkem.a.
+# Rejected, not invalidated. MLKEM_KECCAK_ONLY is not a consumer knob: it
+# names the member set of mlkem-keccak.a and is set by the lib-keccak target
+# itself, on its own manifest object (build/kobj). Reaching every archive
+# member through CONTRACT_DEFINES is something no target here can honor — the
+# full archive's manifest would then describe a member set it does not ship
+# (§6.4) — so it is refused at parse time rather than silently producing a
+# lying mlkem.a.
 ifneq (,$(findstring MLKEM_KECCAK_ONLY,$(CONTRACT_DEFINES) $(CA65FLAGS)))
 $(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.4))
 endif
@@ -301,8 +303,9 @@ check-archives: lib lib-keccak
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7424 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
 
-# Repo-local configuration invalidation, both legs. Leg 1 alone is not a test: a guard that
-# has degraded to an unconditional rebuild passes it. Leg 2 is what catches that.
+# Repo-local configuration invalidation, both legs. Leg 1 alone is not a
+# test: a guard that has degraded to an unconditional rebuild passes it. Leg 2
+# is what catches that.
 check-staleness:
 	@$(TOOLS_DIR)/check_staleness.sh
 
@@ -469,7 +472,7 @@ help:
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
-	@echo "make check-precalc   src/precalc_table.inc == contract head's copy (§8.4)"
+	@echo "make check-precalc   src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF (§8.4)"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"

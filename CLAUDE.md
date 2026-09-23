@@ -24,12 +24,13 @@ below). No ML-DSA ever. No REU anywhere.
    of CPU per TLS handshake for the PQ half alone. (v0.5.0: 61,928,289 =
    26,835,087 + 35,093,202.)
 3. **7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
-   hooks), declared 7424. **93.9% of the 7,680 B `CRYPTO_OVERLAY` window, no
-   split needed** — but only ~2.5 KB of that window is actually free in
-   c64-https' default UCI cfg, so the consumer must re-plan its overlay (P4;
-   fit is explicitly deferred per HANDOFF-P3). Keccak-only member set:
-   1,947 B, declared 2048. **BSS 6,641 B**, excluding the caller's ek/dk/ct
-   (4,672 B).
+   hooks), declared 7424; contiguous CODE+RODATA is 7,231 B with this link's
+   23 B alignment gap (≤ 63 B in any link, §5). **93.9% of the 7,680 B
+   `CRYPTO_OVERLAY` window, no split needed** — but only ~2.5 KB of that
+   window is actually free in c64-https' default UCI cfg, so the consumer must
+   re-plan its overlay (P4; fit is explicitly deferred per HANDOFF-P3).
+   Keccak-only member set: 1,947 B, declared 2048. **BSS 6,641 B**, excluding
+   the caller's ek/dk/ct (4,672 B).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
    199 per-step Keccak checks; **45/45 mutants killed** (WP1 15, WP2 13,
@@ -115,9 +116,12 @@ the total survives the 40–70M budget because that band was wide.
 
 ## Contract obligations that bind file layout
 
-Contract is **SPEC 1.2.3** (main branch, untagged; latest tag v1.2.2).
-`docs/contract-p2-alignment.md` is the historical record of P2's adoption.
-Prefix `<X>` = `MLKEM`, shortname `mlkem`.
+Contract is **SPEC 1.2.3** (main branch, untagged; latest tag v1.2.2) — read
+the SPEC version line, not the tag, and `git -C ../c64-lib-contract fetch
+--tags` first (`check-precalc` reads the pinned tag from local objects).
+`docs/contract-p2-alignment.md` is the historical record of P2's adoption and
+has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
+`mlkem`.
 
 - **Every archive export is under `mlkem_` / `LIB_MLKEM_` / `keccak_`**, or is
   one of the exact §8 canonical names (`mul_tables_init`, `ct_mul_8x8`, …).
@@ -264,7 +268,9 @@ to an unconditional rebuild.
   `make test-mlkem-full` alone is ~150 calls of 10–40M cycles.
 - **Parallel VICE suites on one machine are fine** — `c64-test-harness` 0.12.4
   allocates monitor ports 6511–6531 via a cross-process `PortLock` through
-  `ViceInstanceManager`, and `run_parallel` caps at 10 instances. Never run
+  `ViceInstanceManager`, and `run_parallel` caps at 10 instances by default
+  (`max_workers`); past ~10 instances machine-wide the port allocator raises
+  `RuntimeError` ("No free ports"), which looks like a test failure. Never run
   two `make` invocations in one build tree (they overwrite the same `build/`
   outputs), and real hardware (the U64E) stays serialised through the harness
   device queue.
