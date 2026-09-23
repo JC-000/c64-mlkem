@@ -196,7 +196,8 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
-        check-harness-routing check-precalc vectors help
+        check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
+        vectors help
 
 all: $(PRG)
 
@@ -345,6 +346,17 @@ CONTRACT_PRECALC_REF ?= v1.2.2
 check-precalc:
 	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)" "$(CONTRACT_PRECALC_REF)"
 
+# Self-tests of the two checkers above, on hermetic fixtures (seconds, no
+# VICE, no build tree). A checker nobody tests can be switched off by a
+# one-line edit: each case names the mutant class it kills. The manifest
+# self-test also guards the WIRING — that `test:` still depends on
+# check-manifest, check-precalc and both self-tests, and that check-manifest
+# still probes both archives.
+check-manifest-selftest:
+	@$(PYTHON) $(TOOLS_DIR)/test_check_manifest.py
+check-precalc-selftest:
+	@$(TOOLS_DIR)/test_check_precalc.sh
+
 # Repo-local: the sqtab image guard must be PROVEN to fire. Builds once with
 # the sqtab window deliberately inside the image and requires the link to
 # fail, then restores the default configuration.
@@ -424,7 +436,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -473,6 +485,8 @@ help:
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
 	@echo "make check-precalc   src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF (§8.4)"
+	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
+	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"

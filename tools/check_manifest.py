@@ -134,9 +134,38 @@ def declared_equates(archive):
             return None
         dump = subprocess.run(["od65", "--dump-exports", obj],
                               capture_output=True, text=True, check=True).stdout
-    names = re.findall(r'^\s*Name:\s*"([^"]*)"', dump, re.M)
-    vals = re.findall(r"^\s*Value:\s*0x[0-9A-Fa-f]+\s*\((\d+)\)", dump, re.M)
-    return dict(zip(names, (int(v) for v in vals)))
+    return parse_od65_exports(dump)
+
+
+class Od65ParseError(Exception):
+    pass
+
+
+def parse_od65_exports(dump):
+    """od65 --dump-exports -> {name: value}, parsed PER RECORD. Zipping a
+    list of Name lines against a list of Value lines would silently pair a
+    name with its neighbour's value the moment one export lacks a Value line
+    (a non-constant export does); here every record must carry exactly one
+    Name and one constant Value, and the record count must equal od65's
+    Count line, or Od65ParseError is raised."""
+    m = re.search(r"^\s*Exports:\s*\n\s*Count:\s*(\d+)", dump, re.M)
+    if not m:
+        raise Od65ParseError("no Exports/Count header in od65 output")
+    count = int(m.group(1))
+    body = dump[m.end():]
+    records = re.split(r"^\s*Index:\s*\d+\s*$", body, flags=re.M)[1:]
+    if len(records) != count:
+        raise Od65ParseError(f"od65 Count {count} but {len(records)} export records")
+    out = {}
+    for i, rec in enumerate(records):
+        names = re.findall(r'^\s*Name:\s*"([^"]*)"', rec, re.M)
+        vals = re.findall(r"^\s*Value:\s*0x[0-9A-Fa-f]+\s*\((\d+)\)", rec, re.M)
+        if len(names) != 1 or len(vals) != 1:
+            raise Od65ParseError(f"export record {i}: {len(names)} Name / {len(vals)} Value lines, expected 1/1")
+        if names[0] in out:
+            raise Od65ParseError(f"export {names[0]} appears twice")
+        out[names[0]] = int(vals[0])
+    return out
 
 
 def check_archive(name, archive, probe_map):
@@ -172,7 +201,11 @@ def check_archive(name, archive, probe_map):
                   " classify it in SCOPE (tools/check_manifest.py).")
             fail = True
 
-    declared = declared_equates(archive)
+    try:
+        declared = declared_equates(archive)
+    except Od65ParseError as e:
+        print(f"FAIL: {name}: cannot read declared values from {MANIFEST_MEMBER}: {e}")
+        return True, 0
     if declared is None:
         print(f"FAIL: {name}: no {MANIFEST_MEMBER} member to read declared values from")
         return True, 0

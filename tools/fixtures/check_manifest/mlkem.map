@@ -1,0 +1,55 @@
+Modules list:
+-------------
+main.o:
+    CODE              Offs=000000  Size=00002E  Align=00001  Fill=0000
+    LOADADDR          Offs=000000  Size=000002  Align=00001  Fill=0000
+    BASICSTUB         Offs=000000  Size=00000C  Align=00001  Fill=0000
+bench.o:
+    CODE              Offs=00002E  Size=000087  Align=00001  Fill=0000
+    BSS               Offs=000000  Size=000005  Align=00001  Fill=0000
+zp_config.o:
+lib_version.o:
+lib_manifest.o:
+state.o:
+    LIB_MLKEM_BSS     Offs=000000  Size=0000C8  Align=00100  Fill=0000
+keccak.o:
+    LIB_MLKEM_RODATA  Offs=000000  Size=0000C0  Align=00040  Fill=0000
+    LIB_MLKEM_BSS     Offs=000100  Size=000108  Align=00100  Fill=0038
+    LIB_MLKEM_CODE    Offs=000000  Size=0005C2  Align=00001  Fill=0000
+sponge.o:
+    LIB_MLKEM_BSS     Offs=000208  Size=000007  Align=00001  Fill=0000
+    LIB_MLKEM_CODE    Offs=0005C2  Size=000119  Align=00001  Fill=0000
+sqtab.o:
+    LIB_MLKEM_BSS     Offs=00020F  Size=000004  Align=00001  Fill=0000
+    LIB_MLKEM_CODE    Offs=0006DB  Size=000054  Align=00001  Fill=0000
+ntt.o:
+    LIB_MLKEM_RODATA  Offs=0000C0  Size=000197  Align=00001  Fill=0000
+    LIB_MLKEM_BSS     Offs=000300  Size=00040E  Align=00100  Fill=00ED
+    LIB_MLKEM_CODE    Offs=00072F  Size=0006B0  Align=00001  Fill=0000
+sample.o:
+    LIB_MLKEM_RODATA  Offs=000257  Size=000020  Align=00001  Fill=0000
+    LIB_MLKEM_BSS     Offs=00070E  Size=0000AE  Align=00001  Fill=0000
+    LIB_MLKEM_CODE    Offs=000DDF  Size=0000DD  Align=00001  Fill=0000
+codec.o:
+    LIB_MLKEM_RODATA  Offs=000280  Size=000100  Align=00040  Fill=0009
+    LIB_MLKEM_BSS     Offs=0007BC  Size=00001D  Align=00001  Fill=0000
+    LIB_MLKEM_CODE    Offs=000EBC  Size=0002A9  Align=00001  Fill=0000
+kem.o:
+    LIB_MLKEM_RODATA  Offs=000380  Size=000001  Align=00001  Fill=0000
+    LIB_MLKEM_BSS     Offs=000800  Size=0011F1  Align=00100  Fill=0027
+    LIB_MLKEM_CODE    Offs=001165  Size=0007EF  Align=00001  Fill=0000
+
+
+Segment list:
+-------------
+Name                   Start     End    Size  Align
+----------------------------------------------------
+LOADADDR              0007FF  000800  000002  00001
+BASICSTUB             000801  00080C  00000C  00001
+CODE                  00080D  0008C1  0000B5  00001
+LIB_MLKEM_CODE        0008C2  002215  001954  00001
+LIB_MLKEM_RODATA      002240  0025C0  000381  00040
+BSS                   0025C1  0025C5  000005  00001
+LIB_MLKEM_BSS         002600  003FF0  0019F1  00100
+
+
