@@ -185,7 +185,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
-        check-harness-routing vectors help
+        check-harness-routing vectors help rig rig-full rig-turbo
 
 all: $(PRG)
 
@@ -409,6 +409,28 @@ bench-sampler: $(PRG)
 bench-kem: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_kem.py
 
+# --- hardware rigs (U64E; NOT part of `test` -- CI has no hardware) --------
+# tools/rig_*.py drive the real machine through the harness DeviceLock and
+# the write_bytes/read_bytes funnel (tools/rig_common.py). `rig` is the default
+# depth at stock 1 MHz: KATs, then the cycle counts, which must equal VICE's
+# exactly. `rig-full` runs every vector at 1 MHz (~35 min). `rig-turbo` runs
+# every vector with U64 turbo on and reports what the CIA counts mean there;
+# the entry speed state is snapshotted and restored.
+U64_HOST ?= 10.43.23.81
+RIG_MHZ ?= 48
+
+rig: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
+
+rig-full: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
+
+rig-turbo: $(PRG)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full --mhz $(RIG_MHZ)
+	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py --mhz $(RIG_MHZ)
+
 # Regenerate the rho/pi/RC tables and the ML-KEM zeta/gamma/reduction
 # constants from the validated models.
 tables:
@@ -436,6 +458,9 @@ help:
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
+	@echo "make rig         U64E hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=...)"
+	@echo "make rig-full    U64E hardware: every vector at 1 MHz, then the cycle counts"
+	@echo "make rig-turbo   U64E hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"

@@ -230,7 +230,12 @@ guard that has degraded to an unconditional rebuild.
 ## Tests
 
 - `test_*.py` = runnable-by-CI logic tests; `rig_*.py` = needs real hardware.
-  P1 is all VICE, so everything is `test_*.py`.
+  The rigs (`make rig` / `rig-full` / `rig-turbo`, never in `make test`) run
+  the same KATs and the cycle counts on the U64E through `tools/rig_common.py`,
+  which parks a mailbox dispatcher on `idle` because the Ultimate has no
+  `jsr()`. **Host polls of C64 RAM steal cycles on the U64E** (+1.6k–2.2k on a
+  polled Keccak x8, not reproducible): never poll inside a measurement
+  window — `quiet_s` exists for that.
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.
