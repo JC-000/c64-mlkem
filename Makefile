@@ -413,8 +413,12 @@ bench-kem: $(PRG)
 # tools/rig_*.py drive the real machine through the harness DeviceLock and
 # the write_bytes/read_bytes funnel (tools/rig_common.py). `rig` is the default
 # depth at stock 1 MHz: KATs, then the cycle counts, which must equal VICE's
-# exactly. `rig-full` runs every vector at 1 MHz (~35 min). `rig-turbo` runs
-# every vector with U64 turbo on and reports what the CIA counts mean there;
+# exactly, plus the decaps constant-time pin. `rig-full` runs rig_kat --full
+# at 1 MHz (~50 min: all SHA-3 ShortMsg, all ACVP keyGen/encaps/decaps/
+# key-check vectors, the one-bit ciphertexts; NOT test_sha3's streaming
+# properties or test_mlkem's hazmat/hooks/timing suites), then the counts.
+# `rig-turbo` runs the same
+# --full set with U64 turbo on and reports what the CIA counts mean there;
 # the entry speed state is snapshotted and restored.
 U64_HOST ?= 10.43.23.81
 RIG_MHZ ?= 48
@@ -459,7 +463,7 @@ help:
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
 	@echo "make rig         U64E hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=...)"
-	@echo "make rig-full    U64E hardware: every vector at 1 MHz, then the cycle counts"
+	@echo "make rig-full    U64E hardware: rig_kat --full at 1 MHz, then the cycle counts"
 	@echo "make rig-turbo   U64E hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  measured sizes vs §5 footprint equates"

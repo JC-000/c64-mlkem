@@ -15,7 +15,7 @@ left alone for 1.05x its expected duration + 0.5 s before the first
 completion poll (quiet_s). If a count ever runs longer than that, the polls
 land inside the window and the count goes non-reproducible — which the
 stability gate reports as a FAIL rather than a number. The probe section
-re-measures that effect on every run.
+re-measures that effect on every run as information only (not gated).
 
 At --mhz N > 1 (U64 turbo) the CIA still counts the ~1 MHz system clock
 while the CPU runs faster, so the counts are ticks, not CPU cycles; the rig
@@ -30,11 +30,13 @@ Honors C64_SKIP_BUILD=1 and MLKEM_BUILD_DIR (see rig_common.py).
 import argparse
 import json
 import os
+import random
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from bench_keccak import build_thunk, SPIN_EXPECTED
+import keccak_ref as KR
 import mlkem_ref as M
 from rig_common import Rig, RigError, build_if_needed, load_labels, VECTOR_DIR
 from c64_test_harness import read_bytes, write_bytes
@@ -111,15 +113,43 @@ def main():
 
         q_keccak = VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
         print("Keccak-f[1600]")
-        x1_raw, st_1, v1 = measure_stable(rig, "keccak_f1600", tries=3, quiet_s=q_keccak)
+        # Every timed permutation starts from a fixed state and its result is
+        # checked against keccak_ref (pinned by make test-ref): a count is
+        # only reported for a permutation that computed the right thing.
+        ks = rig.l["keccak_state"]
+        start = bytes(random.Random(0xF1600).randrange(256) for _ in range(200))
+        want1 = KR.to_bytes(KR.permute(KR.from_bytes(start)))
+        a8 = KR.from_bytes(start)
+        for _ in range(8):
+            a8 = KR.permute(a8)
+        want8 = KR.to_bytes(a8)
+        kruns = {"ok": 0, "bad": 0}
+
+        def set_state():
+            write_bytes(rig.t, ks, start)
+
+        def check_state(want):
+            def after():
+                kruns["ok" if read_bytes(rig.t, ks, 200) == want else "bad"] += 1
+            return after
+
+        x1_raw, st_1, v1 = measure_stable(rig, "keccak_f1600", tries=3, quiet_s=q_keccak,
+                                          setup=set_state, after=check_state(want1))
         x1 = x1_raw - overhead
         # The x8 window is 8x as long: its quiet time must be too, or the
         # completion polls land inside the window and steal cycles.
         q_keccak8 = 8 * VICE_KECCAK / PAL_HZ / args.mhz * 1.05 + 0.5
-        x8_raw, st_8, v8 = measure_stable(rig, "keccak_f1600", repeat=8, tries=2, quiet_s=q_keccak8)
+        x8_raw, st_8, v8 = measure_stable(rig, "keccak_f1600", repeat=8, tries=2, quiet_s=q_keccak8,
+                                          setup=set_state, after=check_state(want8))
         x8 = x8_raw - overhead
         print(f"  x1={x1} (stable={st_1}, raw {v1}), x8={x8} (stable={st_8}, raw {v8})")
+        print(f"  state after the permutation(s) == keccak_ref: {kruns['ok']} of "
+              f"{kruns['ok'] + kruns['bad']} runs")
 
+        # 4 x1 runs + 3 x8 runs, warm-ups included.
+        if kruns["bad"] or kruns["ok"] != 7:
+            print("FAIL: keccak_f1600 computed a wrong state; Keccak count withheld.")
+            return 1
         if not (st_1 and st_8):
             print("FAIL: Keccak measurement not reproducible.")
             return 1
@@ -133,7 +163,10 @@ def main():
             print(f"  (turbo: CIA ticks, not CPU cycles: VICE/x1 = {VICE_KECCAK / max(x1, 1):.4f}, "
                   f"VICE*8/x8 = {8 * VICE_KECCAK / max(x8, 1):.4f})\n")
 
-        print("Poll-perturbation probe")
+        # Informational, never gated: whether host polls steal cycles is a
+        # property of the device/harness, not of the library. quiet_s above
+        # is what keeps the gated counts clean either way.
+        print("Poll-perturbation probe (informational)")
         x8_poll_raw, _, _ = measure_stable(rig, "keccak_f1600", repeat=8, tries=1, quiet_s=0.0, cadence=0.005)
         x8_poll = x8_poll_raw - overhead
         print(f"  net={x8_poll}, quiet_net={x8}, diff={x8_poll - x8}\n")
@@ -242,6 +275,58 @@ def main():
                 print(f"  {fn:15} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
                       f"   VICE {VICE[fn]:,}   VICE/ticks {VICE[fn] / net:.4f}   outputs == ACVP (3/3)")
 
+        if not failed and "mlkem_decaps" in results:
+            z_de = dk_de[2368:2400]
+            c1 = bytearray(c_de)
+            c1[0] ^= 1
+            c2 = bytearray(c_de)
+            c2[1087] ^= 1 << 7
+            for name, ct_mod in [("c1 bit 0", c1), ("c2 bit 7", c2)]:
+                want_k = M.J(z_de + bytes(ct_mod))
+                if want_k == expected["mlkem_decaps"]:
+                    print(f"  FATAL: expected key for {name} matches valid key")
+                    return 1
+
+                def setup_mod(ct=ct_mod):
+                    write_bytes(rig.t, BUF_DK, dk_de)
+                    write_bytes(rig.t, BUF_CT, ct)
+                    write_bytes(rig.t, BUF_KEY, bytes([0xEE] * 32))
+                    rig.ptr("mlkem_arg_dk", BUF_DK)
+                    rig.ptr("mlkem_arg_ct", BUF_CT)
+                    rig.ptr("mlkem_arg_key", BUF_KEY)
+
+                # The tampered ct must yield the implicit-rejection key
+                # J(z||c'), NOT the valid K: comparing against the valid K
+                # here would pass exactly the decaps that ignores the tamper.
+                runs = {"ok": 0, "bad": 0}
+
+                def after_mod(want=want_k, runs=runs):
+                    runs["ok" if check_outputs("mlkem_decaps", want) else "bad"] += 1
+
+                q = VICE["mlkem_decaps"] / PAL_HZ / args.mhz * 1.05 + 0.5
+                v, st, vals = measure_stable(rig, "mlkem_decaps", tries=2, setup=setup_mod,
+                                             quiet_s=q, cadence=0.5, timeout=300.0,
+                                             after=after_mod)
+                net = v - overhead
+                if runs["bad"] or runs["ok"] != 3:
+                    print(f"  FAIL decaps {name}: K != J(z||c') (implicit rejection) in {runs['bad']} of "
+                          f"{runs['ok'] + runs['bad']} runs; count withheld")
+                    failed = True
+                    continue
+                if not st:
+                    print(f"  FAIL {name}: not reproducible {[x - overhead for x in vals]}")
+                    failed = True
+                    continue
+                results[name] = net
+                if args.mhz == 1:
+                    ok = net == results["mlkem_decaps"]
+                    print(f"  {name:15} {net:>12,} cycles   valid {results['mlkem_decaps']:>12,}   diff {net - results['mlkem_decaps']:+,}"
+                          f"   K == J(z||c') (3/3)   {'CONSTANT-TIME' if ok else 'FAIL (T1: decaps time depends on c)'}")
+                    failed |= not ok
+                else:
+                    print(f"  {name:15} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
+                          f"   valid {results['mlkem_decaps']:,}   diff {net - results['mlkem_decaps']:+,}   {'CONSTANT-TIME' if net == results['mlkem_decaps'] else 'INFO'}")
+
         if failed:
             print("\nFAIL: see above.")
             return 1
@@ -261,6 +346,13 @@ def main():
             ref = VICE[fn]
             diff = net - ref
             print(f"  {fn:<15} {net:>12,} {ref:>12,} {diff:>12,}")
+        if args.mhz == 1:
+            for name in ("c1 bit 0", "c2 bit 7"):
+                if name in results:
+                    net = results[name]
+                    ref = results["mlkem_decaps"]
+                    diff = net - ref
+                    print(f"  {name:<15} {net:>12,} {ref:>12,} {diff:>12,}")
         print("-" * 60)
         return 0
 

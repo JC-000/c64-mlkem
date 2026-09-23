@@ -233,9 +233,12 @@ guard that has degraded to an unconditional rebuild.
   The rigs (`make rig` / `rig-full` / `rig-turbo`, never in `make test`) run
   the same KATs and the cycle counts on the U64E through `tools/rig_common.py`,
   which parks a mailbox dispatcher on `idle` because the Ultimate has no
-  `jsr()`. **Host polls of C64 RAM steal cycles on the U64E** (+1.6k–2.2k on a
-  polled Keccak x8, not reproducible): never poll inside a measurement
-  window — `quiet_s` exists for that.
+  `jsr()`. **Host reads of C64 RAM steal CPU cycles on the U64E** (fw 3.15):
+  about 10 cycles + ~1.15 cycles per byte for each `read_bytes`, so a 5 ms
+  poll loop added +1.5k–2.2k to a Keccak x8, differently every run.
+  Non-memory REST calls (config, info) steal nothing (adversarial review,
+  2026-09-22). Never poll inside a measurement window — `quiet_s` exists
+  for that; rig_bench's poll probe reports the effect but does not gate on it.
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.

@@ -19,9 +19,9 @@ So the rig installs a small dispatcher in RAM and redirects `idle` to it:
            beq DISP
            jsr THUNK     ; the thunk is `jsr <target> ; rts`, or a bench window
            sta RES_A     ; A on return (mlkem_encaps' status)
-           lda #0
+           inc SEQ       ; SEQ first, THEN release GO: the host can
+           lda #0        ; never see GO == 0 with SEQ not yet advanced
            sta GO
-           inc SEQ       ; completion = SEQ advanced by exactly one
            jmp DISP
 
 DISP is placed at the same LOW byte as `idle`, so the redirect is a ONE-byte
@@ -44,7 +44,7 @@ Host reads of C64 RAM on the Ultimate are DMA, and they DO steal 6510
 cycles: measured on the U64E (fw 3.15), Keccak x8 polled every 5 ms inside
 its window read +1.6k-2.2k cycles, not reproducibly. So `call()` /
 `run_thunk()` take `quiet_s`: no poll is issued until that long after GO is
-set. rig_bench re-measures the effect on every run.
+set. rig_bench reports the effect on every run (informational, not gated).
 
 Other builds: MLKEM_BUILD_DIR=<dir with mlkem.prg + labels.txt> runs the
 rigs against that build (a mutant tree's build/, say) and skips `make`.
@@ -96,9 +96,9 @@ def dispatcher_code(disp):
                   0xF0, 0xFB])                       # beq disp (-5)
     code += jsr_bytes(THUNK)                         # jsr THUNK
     code += bytes([0x8D, RES_A & 0xFF, RES_A >> 8,   # sta RES_A
+                   0xEE, SEQ & 0xFF, SEQ >> 8,       # inc SEQ
                    0xA9, 0x00,                       # lda #0
                    0x8D, GO & 0xFF, GO >> 8,         # sta GO
-                   0xEE, SEQ & 0xFF, SEQ >> 8,       # inc SEQ
                    0x4C, disp & 0xFF, disp >> 8])    # jmp disp
     return code
 
@@ -117,9 +117,62 @@ def build_if_needed():
         raise RigError("build failed")
 
 
+# Instruction lengths by 6502 addressing mode (documented opcodes), enough
+# to walk mul_tables_init linearly.
+def _oplen(op):
+    a, b, c = op >> 5, (op >> 2) & 7, op & 3
+    if c == 1:
+        return 3 if b in (3, 6, 7) else 2
+    if c == 2:
+        return {0: 2, 1: 2, 3: 3, 5: 2, 7: 3}.get(b, 1)
+    if c == 0:
+        if op == 0x20:
+            return 3
+        if b == 0:
+            return 2 if a >= 5 else 1
+        return {1: 2, 3: 3, 4: 2, 5: 2, 7: 3}.get(b, 1)
+    raise RigError(f"undocumented opcode ${op:02X} in mul_tables_init")
+
+
+def read_prg():
+    with open(PRG_PATH, "rb") as fh:
+        prg = fh.read()
+    return prg[0] | (prg[1] << 8), prg[2:]
+
+
+def sqtab_extent(labels):
+    """[base, base + size) of sqtab in THIS build.
+
+    LIB_SHARED_SQTAB_BASE is deliberately never exported (contract §8.1),
+    and a consumer may move it with CONTRACT_DEFINES, so it is read from
+    the code that uses it: mul_tables_init's first two `sta abs,x` store
+    to sqtab_lo and sqtab_hi (src/sqtab.s), sqtab_hi = sqtab_lo + $200.
+    The size is the build's own §8.4 row (LIB_MLKEM_PRECALC_sqtab_SIZE)."""
+    load, body = read_prg()
+    pc = labels["mul_tables_init"]
+    stores = []
+    for _ in range(40):
+        op = body[pc - load]
+        n = _oplen(op)
+        if op == 0x9D:
+            stores.append(body[pc - load + 1] | (body[pc - load + 2] << 8))
+            if len(stores) == 2:
+                break
+        if op == 0x60:
+            break
+        pc += n
+    if len(stores) != 2 or stores[1] != stores[0] + 0x200:
+        raise RigError(f"could not locate sqtab from mul_tables_init: stores {stores}")
+    size = labels.address("LIB_MLKEM_PRECALC_sqtab_SIZE")
+    if size is None:
+        raise RigError("LIB_MLKEM_PRECALC_sqtab_SIZE missing from labels")
+    return stores[0], stores[0] + size
+
+
 def load_labels(scratch_lo, scratch_hi):
     """Labels, with the image-vs-scratch claim checked (CLAUDE.md: any
-    harness scratch address is a claim about the image size)."""
+    harness scratch address is a claim about the image size), and neither
+    the scratch nor the rig page overlapping this build's sqtab."""
     labels = Labels.from_file(LABELS_PATH)
     last = labels.address("__MAIN_LAST__")
     if last is None:
@@ -128,10 +181,13 @@ def load_labels(scratch_lo, scratch_hi):
     if last > lo:
         raise RigError(f"image ends at ${last:04X}, past the rig scratch "
                        f"${lo:04X}-${scratch_hi:04X}")
-    if scratch_hi > 0x9000:
-        # LIB_SHARED_SQTAB_BASE (standalone default $9000, src/sqtab_base.inc)
-        # is deliberately never exported, so it cannot be read from labels.
-        raise RigError(f"scratch top ${scratch_hi:04X} runs into sqtab at $9000")
+    sq_lo, sq_hi = sqtab_extent(labels)
+    for name, a, b in (("scratch", scratch_lo, scratch_hi),
+                       ("rig page", RIG_PAGE, RIG_PAGE + 0x100)):
+        if a < sq_hi and sq_lo < b:
+            raise RigError(f"{name} ${a:04X}-${b:04X} overlaps sqtab ${sq_lo:04X}-${sq_hi:04X}")
+    print(f"  sqtab ${sq_lo:04X}-${sq_hi - 1:04X} (from mul_tables_init); "
+          f"scratch ${scratch_lo:04X}-${scratch_hi - 1:04X}, rig page ${RIG_PAGE:04X}")
     return labels
 
 
@@ -155,6 +211,7 @@ class Rig:
         self.snap = None
         self.info = {}
         self._thunk = None
+        self.restore_failed = False
 
     # --- session -----------------------------------------------------------
 
@@ -200,12 +257,19 @@ class Rig:
                 print(f"  speed state restored: CPU Speed={s.cpu_speed!r} "
                       f"Turbo Control={s.turbo_control!r}")
                 if (s.cpu_speed, s.turbo_control) != (self.snap.cpu_speed, self.snap.turbo_control):
-                    print("  WARNING: speed state did NOT restore to the entry snapshot")
+                    self.restore_failed = True
+                    print("  ERROR: speed state did NOT restore to the entry snapshot "
+                          f"(entry {self.snap.cpu_speed!r}/{self.snap.turbo_control!r})")
         finally:
             if self._ctx is not None:
                 self._ctx.__exit__(*exc)
             if self._mgr is not None:
                 self._mgr.__exit__(*exc)
+        # A device left at a different speed poisons every later lane's
+        # measurements: that is a failed run, not a warning. (With an
+        # exception already in flight, that one propagates instead.)
+        if self.restore_failed and exc[0] is None:
+            raise RigError("device speed state was not restored to its entry snapshot")
         return False
 
     def _boot(self):
@@ -215,6 +279,13 @@ class Rig:
         run_prg_via_sys(self.target, prg)
         if wait_for_text(self.t, BANNER, timeout=60.0, verbose=False) is None:
             raise RigError("banner did not appear after run_prg_via_sys")
+        # The image in RAM must be THIS build: compare the Keccak round
+        # constants (rodata, never written at runtime) with the PRG file.
+        load, body = prg[0] | (prg[1] << 8), prg[2:]
+        rc = self.l["keccak_rc"]
+        want = body[rc - load:rc - load + 192]
+        if len(want) != 192 or read_bytes(self.t, rc, 192) != want:
+            raise RigError(f"keccak_rc at ${rc:04X} in C64 RAM differs from {PRG_PATH}")
         print(f"  PRG loaded and started: {PRG_PATH} ({len(prg)} B, {time.time() - t0:.1f}s)")
         self._install_dispatcher()
 

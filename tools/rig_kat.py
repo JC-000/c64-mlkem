@@ -8,13 +8,14 @@ Requires U64_HOST to be set and a connected U64E. Not part of `make test`.
 Default depth (~5 min at 1 MHz): the test_sha3 ShortMsg subset (rate
 boundaries + sample) and a VariableOut sample, 2 keyGen, 2 encaps (one on odd
 addresses), 1 valid + 1 modified-ciphertext decaps, 1 rejected + 1 valid ek
-check. --full: all 820 ShortMsg vectors, 25 keyGen, 25 encaps, 10 decaps,
-10 ek checks. The streaming-property tests of test_sha3 are VICE-only (too
-many round trips).
+check, 2 onebit (byte 0 in c1, byte 1087 in c2), 1 decapsulationKeyCheck.
+--full: all 820 ShortMsg vectors, 25 keyGen, 25 encaps, 10 decaps,
+10 ek checks, 5 onebit variants, all 10 decapsulationKeyCheck vectors.
+The streaming-property tests of test_sha3 are VICE-only (too many round trips).
 
 Usage:
     U64_HOST=10.43.23.81 python3 tools/rig_kat.py [--full] [--mhz N]
-        [--only sha3,keygen,encaps,decaps,ekcheck]
+        [--only sha3,keygen,encaps,decaps,onebit,ekcheck,dkcheck]
 Honors C64_SKIP_BUILD=1 and MLKEM_BUILD_DIR (see rig_common.py).
 """
 
@@ -92,14 +93,14 @@ def main():
             print("Missing value for --only", file=sys.stderr)
             return 1
 
-    valid_only = {"sha3", "keygen", "encaps", "decaps", "ekcheck"}
+    valid_only = {"sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck"}
     if only is not None:
         for name in only:
             if name not in valid_only:
                 print(f"Unknown suite: {name}", file=sys.stderr)
                 return 2
     if only is None:
-        only = list(valid_only)
+        only = ["sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck"]
 
     if not T.self_check_model():
         print("FATAL: self_check_model failed")
@@ -163,6 +164,26 @@ def main():
                 print(f"[decaps] {dec_checks} checks in {time.time()-t0:.1f}s")
                 if dec_checks == 0:
                     T._fails.append("decaps suite added zero checks")
+
+            if "onebit" in only:
+                c64 = RigC64(rig)
+                t0 = time.time()
+                pre_ob = T._checks
+                T.suite_onebit(c64, full)
+                ob_checks = T._checks - pre_ob
+                print(f"[onebit] {ob_checks} checks in {time.time()-t0:.1f}s")
+                if ob_checks == 0:
+                    T._fails.append("onebit suite added zero checks")
+
+            if "dkcheck" in only:
+                c64 = RigC64(rig)
+                t0 = time.time()
+                pre_dk = T._checks
+                T.suite_dkcheck(c64, full)
+                dk_checks = T._checks - pre_dk
+                print(f"[dkcheck] {dk_checks} checks in {time.time()-t0:.1f}s")
+                if dk_checks == 0:
+                    T._fails.append("dkcheck suite added zero checks")
 
             if "ekcheck" in only:
                 c64 = RigC64(rig)
