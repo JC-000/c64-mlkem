@@ -78,7 +78,7 @@ endif
 # the link is skipped, producing no output file at all (measured).
 _ := $(shell \
   if [ -f build/.config-sig ] && [ "$$(cat build/.config-sig)" != '$(CONFIG_SIG)' ]; then \
-    rm -rf build/obj build/tobj build/kobj build/lib build/mlkem.prg build/labels.txt build/mlkem.map build/mlkem-lib.prg build/mlkem-lib.map; \
+    rm -rf build/obj build/tobj build/kobj build/lib build/mlkem.prg build/labels.txt build/mlkem.map build/mlkem-lib.prg build/mlkem-lib.map build/mlkem-keccak-lib.prg build/mlkem-keccak-lib.map; \
   fi; \
   mkdir -p build 2>/dev/null; printf '%s' '$(CONFIG_SIG)' > build/.config-sig)
 
@@ -175,6 +175,19 @@ LIB_PROBE_MAP = $(BUILD_DIR)/mlkem-lib.map
 LIB_PROBE_PULL = -u mlkem_keygen -u mlkem_encaps -u mlkem_decaps -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
 DRIVER_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS)))
 
+# Probe link of the SHIPPED mlkem-keccak.a, for its own §5 figures (contract
+# 1.2.3: the basis is the placed span in a real link, per archive — a subset
+# sum of the mlkem.a probe's member sizes is the object-size basis 1.2.3
+# forbids, and would miss any fill that member set places differently). The
+# driver objects cannot link against it (main.o imports the KEM entry points),
+# so the probe is the consumer-assembled zp_config.o plus the archive, with
+# every member's public surface forced in; check_manifest.py fails if any
+# member is left out. ld65 warns that LOADADDR/BASICSTUB do not exist —
+# expected, no driver is linked.
+LIB_PROBE_KECCAK      = $(BUILD_DIR)/mlkem-keccak-lib.prg
+LIB_PROBE_KECCAK_MAP  = $(BUILD_DIR)/mlkem-keccak-lib.map
+LIB_PROBE_KECCAK_PULL = -u mlkem_absorb -u mlkem_squeeze -u keccak_f1600 -u keccak_state -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
+
 # main.o MUST come first so `start` lands at $080D, matching SYS 2061.
 LINK_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS) $(LIB_SRCS)))
 
@@ -185,7 +198,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
-        check-harness-routing vectors help
+        check-harness-routing check-precalc vectors help
 
 all: $(PRG)
 
@@ -249,6 +262,9 @@ lib-keccak: $(ARCHIVE_KECCAK) $(SHIPPED)
 $(LIB_PROBE): $(ARCHIVE) $(DRIVER_OBJS) $(CFG)
 	$(LD65) -C $(CFG) $(LIB_PROBE_PULL) -o $@ -m $(LIB_PROBE_MAP) $(DRIVER_OBJS) $(ARCHIVE)
 
+$(LIB_PROBE_KECCAK): $(ARCHIVE_KECCAK) $(TOBJ_DIR)/zp_config.o $(CFG)
+	$(LD65) -C $(CFG) $(LIB_PROBE_KECCAK_PULL) -o $@ -m $(LIB_PROBE_KECCAK_MAP) $(TOBJ_DIR)/zp_config.o $(ARCHIVE_KECCAK)
+
 $(ARCHIVE): $(LIB_OBJS) | $(LIB_DIR)
 	@rm -f $@
 	$(AR65) r $@ $(LIB_OBJS)
@@ -306,10 +322,26 @@ check-prefix:
 	@$(MAKE) --no-print-directory lib lib-keccak >/dev/null
 	@$(TOOLS_DIR)/check_prefix.sh
 
-# Reports measured segment sizes so the §5 footprint equates can be refreshed
-# safe-direction (>= measured, rounded UP to the next 256-byte boundary).
-check-manifest: $(PRG) $(LIB_PROBE)
-	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py $(MAPFILE) $(LIB_PROBE_MAP) $(SRC_DIR)/lib_manifest.s
+# Contract §5 (1.2.3): each footprint equate a shipped archive's manifest
+# declares must be >= the PLACED SPAN of the segments it covers in a probe
+# link of THAT archive (internal alignment fill charged; gaps between and
+# padding before the segments not charged). Both member sets, each against its
+# own manifest member. Fails on an unsafe value; refresh safe-direction (>=
+# measured, rounded UP to the next 256-byte boundary).
+check-manifest: $(PRG) $(LIB_PROBE) $(LIB_PROBE_KECCAK)
+	@$(PYTHON) $(TOOLS_DIR)/check_manifest.py --test-map $(MAPFILE) \
+	    --probe mlkem.a $(ARCHIVE) $(LIB_PROBE_MAP) \
+	    --probe mlkem-keccak.a $(ARCHIVE_KECCAK) $(LIB_PROBE_KECCAK_MAP)
+
+# §8.4: src/precalc_table.inc is a byte-for-byte copy of the contract HEAD's
+# root precalc_table.inc, compared against the contract repo's origin/HEAD —
+# not its working tree, which may sit on any branch. A missing contract
+# checkout FAILS rather than skipping: an absent comparand is not a pass.
+# CONTRACT_DIR defaults to the sibling of the MAIN checkout (via the git
+# common dir), so it resolves from a git worktree too.
+CONTRACT_DIR ?= $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../../c64-lib-contract)
+check-precalc:
+	@$(TOOLS_DIR)/check_precalc.sh "$(CONTRACT_DIR)"
 
 # §6.7 constraint 3: the image guard must be PROVEN to fire. Builds once with
 # the sqtab window deliberately inside the image and requires the link to
@@ -390,7 +422,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -437,7 +469,8 @@ help:
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
-	@echo "make check-manifest  measured sizes vs §5 footprint equates"
+	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
+	@echo "make check-precalc   src/precalc_table.inc == contract head's copy (§8.4)"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
 	@echo "make check-staleness §6.3 both legs, on the ZP, sqtab-base and Keccak-only knobs"
 	@echo "make check-sqtab-guard  §6.7: the image guard fires on a deliberate overrun"
