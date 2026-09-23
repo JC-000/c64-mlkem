@@ -164,7 +164,7 @@ KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS))) \
 
 # Probe link of the SHIPPED archive (no test hooks): the driver objects plus
 # mlkem.a, every public entry forced in with -u so ld65 pulls every member.
-# Measures the footprint of the bytes a consumer actually links (§6.6) and
+# Measures the footprint of the bytes a consumer actually links (§5) and
 # proves the archive links on its own.
 LIB_PROBE     = $(BUILD_DIR)/mlkem-lib.prg
 LIB_PROBE_MAP = $(BUILD_DIR)/mlkem-lib.map

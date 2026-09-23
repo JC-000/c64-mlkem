@@ -25,7 +25,7 @@
 .import bench_cycles_start, bench_cycles_stop, bench_cycles, bench_spin_1000
 .import mul_tables_init, mlkem_arith_init
 
-; --- c64-lib-contract §6.7 image guard ------------------------------------
+; --- image guard: the linked image must end at or below LIB_SHARED_SQTAB_BASE
 ; The §8.1 sqtab is 1 KB of RAM at LIB_SHARED_SQTAB_BASE that ld65 knows
 ; nothing about. This TU ships in no archive, so it is the place the library
 ; guards its own image against growing into that window. Hard import, never

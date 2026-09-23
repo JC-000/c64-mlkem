@@ -5,8 +5,8 @@
 ;
 ; SHIPS IN NO ARCHIVE. This is the library author's measurement instrument,
 ; not library surface. Keeping it out of build/lib/*.a also makes this TU the
-; natural home for the contract §6.7 image guard when a future phase places an
-; equate-reserved region.
+; natural home for an image guard (the linked image must end below the region)
+; when a future phase places an equate-reserved region.
 ;
 ; bench_cycles_start / bench_cycles_stop configure CIA1 Timer A + Timer B as a
 ; chained free-running 32-bit down-counter from $FFFFFFFF:

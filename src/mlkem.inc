@@ -27,7 +27,7 @@
 ;     .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
 ;     .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 1), lderror, "needs c64-mlkem v0.1+"
 ;
-; FOOTPRINT GATE (contract §6.6):
+; FOOTPRINT GATE (contract §5):
 ;     .import LIB_MLKEM_RESIDENT_BYTES, LIB_MLKEM_COLD_BYTES
 ;     .import __MAIN_SIZE__
 ;     .assert LIB_MLKEM_RESIDENT_BYTES + LIB_MLKEM_COLD_BYTES <= __MAIN_SIZE__, lderror, "c64-mlkem footprint exceeds the MAIN budget"
@@ -121,7 +121,8 @@ MLKEM_INC_INCLUDED = 1
 ;                       LIB_MLKEM_BSS. Reads nothing else. Every routine above
 ;                       reads them, so a missing call is a wrong answer, not
 ;                       a crash.
-; Mirror the library's §6.7 guard in your own link (sqtab_base.inc ships next
+; Mirror the library's image guard in your own link: the linked image must
+; end at or below LIB_SHARED_SQTAB_BASE (sqtab_base.inc ships next
 ; to this header and carries the standalone default; a -D on your command
 ; line overrides it — never define a second default yourself):
 ;   .include "sqtab_base.inc"

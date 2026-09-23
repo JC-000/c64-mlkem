@@ -1,10 +1,11 @@
 ; =============================================================================
 ; sqtab_base.inc — c64-lib-contract §8.1 placement header (canonical shape).
 ;
-; The ONLY place the standalone default for LIB_SHARED_SQTAB_BASE lives (§6.7
-; v0.10.2: two independent copies of an .ifndef default can silently disagree).
+; The ONLY place the standalone default for LIB_SHARED_SQTAB_BASE lives (two
+; independent copies of an .ifndef default can silently disagree).
 ; Included from src/constants.s (every library TU that reads the table) and
-; from src/main.s (the §6.7 image guard). See docs/contract-p2-alignment.md §2.
+; from src/main.s (the image guard: the linked image must end at or below
+; LIB_SHARED_SQTAB_BASE). See docs/contract-p2-alignment.md §2.
 ;
 ; The table is 1,024 B of RAM OUTSIDE every ld65 segment: sqtab_lo at base,
 ; sqtab_hi at base + $0200, each 512 B, (sqtab_hi[n] << 8 | sqtab_lo[n]) =
