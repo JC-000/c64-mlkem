@@ -4,7 +4,7 @@ ML-KEM (FIPS 203) for the Commodore 64, in ca65 assembly.
 
 Part of the [JC-000](https://github.com/JC-000) 6502 crypto library ecosystem
 and conformant to [c64-lib-contract](https://github.com/JC-000/c64-lib-contract)
-**v0.13.0 (head)**. Precalculated-table enumeration per §8.0/§8.4:
+**SPEC 1.2.3**. Precalculated-table enumeration per §8.0/§8.4:
 [`docs/precalc-tables.md`](docs/precalc-tables.md) — three P2 tables
 (`sqtab`, `mlkem_zetas`, `mlkem_rtab`) clear the floor; no Keccak table does.
 
@@ -472,18 +472,19 @@ make bench            # cycle-exact Keccak-f[1600] measurement
 make bench-kem        # KeyGen / Encaps / Decaps + NTT cycles, Keccak share separated
 make bench-sampler    # WP2 sampler/codec cycles + constant-time check
 make tables           # regenerate src/keccak_tables.inc + src/mlkem_tables.inc
-make check-manifest   # measured segment sizes vs the §5 footprint equates, both archives
+make check-manifest   # §5 placed span vs the footprint equates, probe link of each archive
+make check-precalc    # src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF
 make check-archives   # no driver object in any archive; per-archive manifest values
-make check-staleness  # §6.3 both legs on three knobs
-make check-sqtab-guard  # §6.7: the image guard fires on a deliberate overrun
+make check-staleness  # config knobs rebuild what they change, and nothing else
+make check-sqtab-guard  # the sqtab image guard fires on a deliberate overrun
 make check-prefix     # every archive export under mlkem_ / LIB_MLKEM_ / keccak_
 make check-harness-routing  # all tool device I/O goes through the harness funnel
 make vectors          # fetch the CAVP LongMsg sets (~4.8 MB, not tracked)
 ```
 
-**VICE suites cannot run concurrently** — two harness instances collide on
-the monitor port. `make test` runs them one at a time; do not run a second
-`make test-*` or `bench*` in parallel on the same machine.
+VICE suites may run in parallel (the harness allocates monitor ports under a
+cross-process lock), but never run two `make`s in one build tree — they share
+`build/`.
 
 Tests use the shared venv interpreter, since the system `python3` lacks the
 harness:
@@ -528,7 +529,7 @@ the link rather than corrupting at runtime.
 §8.1 `sqtab` at `LIB_SHARED_SQTAB_BASE` (this library provides it unless you
 build with `-D SHARED_SQTAB_INIT`, in which case your designated owner does
 and this library imports it — never both); `mlkem_arith_init` builds the
-mod-q tables in `LIB_MLKEM_BSS`. Mirror the §6.7 guard in your own link
+mod-q tables in `LIB_MLKEM_BSS`. Mirror the image guard in your own link
 (`cfg/mlkem-example.cfg` shows the three lines).
 
 **Calling ML-KEM-768:** six 16-bit pointers in the parameter block at

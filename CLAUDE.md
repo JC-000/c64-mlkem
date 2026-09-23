@@ -115,18 +115,20 @@ the total survives the 40–70M budget because that band was wide.
 
 ## Contract obligations that bind file layout
 
-Contract is **v0.13.0 at head** (tags stop at v0.11.0 — read the SPEC version
-line, not the tag; `git -C ../c64-lib-contract fetch --tags` first anyway).
-`docs/contract-p2-alignment.md` has the v0.11.0 → v0.13.0 clause-by-clause
-verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
-`MLKEM`, shortname `mlkem`.
+Contract is **SPEC 1.2.3** (main branch, untagged; latest tag v1.2.2).
+`docs/contract-p2-alignment.md` is the historical record of P2's adoption.
+Prefix `<X>` = `MLKEM`, shortname `mlkem`.
 
 - **Every archive export is under `mlkem_` / `LIB_MLKEM_` / `keccak_`**, or is
   one of the exact §8 canonical names (`mul_tables_init`, `ct_mul_8x8`, …).
   `make check-prefix` (in `make test`) enforces it on the extracted archive
   members. `poly_`, `mul_`, `ct_`, `sha_` are other libraries' prefixes.
-- `src/precalc_table.inc` is a byte-for-byte copy of the contract root file —
-  never edit it; refresh with `cp` + `cmp`. It is `.include`d from
+- `src/precalc_table.inc` is a byte-for-byte copy of the contract's file at
+  the tag `CONTRACT_PRECALC_REF` pins in the Makefile (v1.2.2; it moves
+  deliberately when adopting a new contract tag) — never edit it; refresh with
+  `git -C ../c64-lib-contract show v1.2.2:precalc_table.inc >
+  src/precalc_table.inc`. `make check-precalc` (in `make test`) fails if the
+  copy differs from that ref. It is `.include`d from
   `src/lib_manifest.s` and nowhere else, and that TU defines
   `LIB_NO_BARE_EXPORTS` first so no bare `LIB_PRECALC_*` form is ever emitted.
 
@@ -134,17 +136,20 @@ verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
   ld65 links whole archive members, so anything sharing that member enters a
   consumer's link uninvited.
 - **No deprecated bare `LIB_VERSION_*` exports, and no unprefixed archive member
-  basenames.** Both are contract v0.11.0 zero-consumer carve-outs that this
-  library is the first to take; re-adding either would put it back on a
-  migration path it deliberately skipped. The export surface is byte-identical
-  with and without `-D LIB_NO_BARE_EXPORTS=1`.
+  basenames.** They are zero-consumer carve-outs (the bare version-export one
+  is §1's) that this library was first to take; re-adding either would put it
+  back on a migration path it deliberately skipped. The export surface is
+  byte-identical with and without `-D LIB_NO_BARE_EXPORTS=1`.
 - `LIB_MLKEM_ABI_VERSION` moves only on a **breaking** export change. It went
   1 → 2 at v0.4.0 for the bare-export removal; it did NOT move for v0.2.0
   (additive) or v0.3.0 (implementation-only).
 - `src/lib_manifest.s` carries the §5 aggregates. Footprint equates are
   **safe-direction**: ≥ measured, rounded UP to the next 256-byte boundary.
-  Refresh them from the map file (`make check-manifest`) at the end of every
-  phase.
+  The basis is the **placed span** of the segments they cover (internal
+  alignment fill charged, inter-segment gaps and leading padding not), not a
+  sum of object sizes. `make check-manifest` measures it on probe links of
+  both archives, reading the declared values from each archive's manifest
+  member with `od65`. Refresh at the end of every phase.
 - Zero page uses the §6.2 **consumer-assembled** model. `zp_config.s` is in NO
   archive; library TUs `.importzp`. Do not `.include "zp_config.s"` from
   `constants.s` — that silently converts the repo to the bake-everywhere model
@@ -160,7 +165,7 @@ verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
   would be a byte-identical second name; README divergence 7).
 - **`mlkem-keccak.a` has its own manifest object** (`build/kobj`, assembled
   with `-D MLKEM_KECCAK_ONLY=1`): masks 0/0, no §8.4 rows, `RESIDENT_BYTES`
-  1536. §6.4 forbids one manifest describing two member sets.
+  2048 (measured 1947). §6.4 forbids one manifest describing two member sets.
   `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** —
   no target can honor it build-wide. `check-archives` pins both manifests'
   values with `od65`; `check-staleness` pins that alternating `lib` /
@@ -168,9 +173,12 @@ verdicts and the exact §8.1 / §8.0 / §6.7 shapes P2 adopts. Prefix `<X>` =
 - **`sqtab` lives outside every segment** at `LIB_SHARED_SQTAB_BASE`
   (`src/sqtab_base.inc`, the only place the default `$9000` lives; shipped
   next to `mlkem.inc`). The multiply bakes the page byte into its `abs,x`
-  sites, so the base is in the §6.3 signature. `src/main.s` carries the §6.7
-  guard and `make check-sqtab-guard` proves it fires. Never `.export`
-  `sqtab_lo/hi` or the base; never invent a `sqtab_init` alias.
+  sites, so the base is in the build's invalidation signature (see the
+  "Build-configuration invalidation" section; `make check-staleness`).
+  `src/main.s` carries an image guard (the link fails if the image reaches the
+  sqtab window), kept as repo-local hygiene, and `make check-sqtab-guard`
+  proves it fires. Never `.export` `sqtab_lo/hi` or the base; never invent a
+  `sqtab_init` alias.
 - **§8.4 rows for tables built at init.** `mlkem_rtab` (the 1 KB R1/R2
   reduction tables, BSS, built by `mlkem_arith_init`) IS enumerated — `sqtab`
   is built at init too and §8.1 makes its row mandatory. Region RAM. Add a
@@ -204,7 +212,7 @@ step names its round and its step mapping instead of producing a wrong digest.
 round constants, pi destinations and rho decomposition all come from the
 validated model, so a transcription slip is impossible by construction.
 
-## Build-configuration invalidation (§6.3, contract v0.11.1)
+## Build-configuration invalidation
 
 `CONTRACT_DEFINES` / `CONTRACT_ZP_DEFINES` must invalidate what they
 reconfigure. Without that, a warm tree answers "Nothing to be done", exits 0
@@ -224,8 +232,8 @@ Two things about the fix that will look like over-engineering and are not:
 
 `check-staleness` asserts **both** legs — changed knob flips the artifact, and
 unchanged knob rebuilds nothing — on three knobs: the ZP slot, the sqtab base,
-and the Keccak-only manifest. §6.3 is explicit that leg 1 alone passes on a
-guard that has degraded to an unconditional rebuild.
+and the Keccak-only manifest. Leg 1 alone passes on a guard that has degraded
+to an unconditional rebuild.
 
 ## Tests
 
@@ -254,10 +262,12 @@ guard that has degraded to an unconditional rebuild.
   round-trips dominate, so a vector count that is trivial in Python is not
   trivial under the emulator. `make test` (default depth) is ~90 s of VICE;
   `make test-mlkem-full` alone is ~150 calls of 10–40M cycles.
-- **VICE suites cannot run concurrently on one machine** — two harness
-  instances collide on the monitor port and one of them fails in a way that
-  looks like a test failure. `make test` runs them one at a time; an agent
-  running a mutation gate must have the machine's VICE to itself.
+- **Parallel VICE suites on one machine are fine** — `c64-test-harness` 0.12.4
+  allocates monitor ports 6511–6531 via a cross-process `PortLock` through
+  `ViceInstanceManager`, and `run_parallel` caps at 10 instances. Never run
+  two `make` invocations in one build tree (they overwrite the same `build/`
+  outputs), and real hardware (the U64E) stays serialised through the harness
+  device queue.
 - Read-only for implementers: `tools/test_*.py`, `tools/mlkem_ref.py`,
   `tools/mutants/`. The red author owns them; disputes go to the supervisor.
 
