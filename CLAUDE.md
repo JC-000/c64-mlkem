@@ -25,12 +25,14 @@ below). No ML-DSA ever. No REU anywhere.
    26,835,087 + 35,093,202.)
 3. **7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
    hooks), declared 7424; contiguous CODE+RODATA is 7,231 B with this link's
-   23 B alignment gap (≤ 63 B in any link, §5). **93.9% of the 7,680 B
-   `CRYPTO_OVERLAY` window, no split needed** — but only ~2.5 KB of that
-   window is actually free in c64-https' default UCI cfg, so the consumer must
-   re-plan its overlay (P4; fit is explicitly deferred per HANDOFF-P3).
-   Keccak-only member set: 1,947 B, declared 2048. **BSS 6,641 B**, excluding
-   the caller's ek/dk/ct (4,672 B).
+   23 B alignment gap (≤ 63 B while RODATA directly follows CODE at
+   `align = $40`; §5 gives only `(-previous_end) mod alignment`, and a
+   consumer that reorders or aligns more coarsely can pay more). **93.9% of
+   the 7,680 B `CRYPTO_OVERLAY` window, no split needed** — but only ~2.5 KB
+   of that window is actually free in c64-https' default UCI cfg, so the
+   consumer must re-plan its overlay (P4; fit is explicitly deferred per
+   HANDOFF-P3). Keccak-only member set: 1,947 B, declared 2048.
+   **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
    199 per-step Keccak checks; **45/45 mutants killed** (WP1 15, WP2 13,

@@ -166,7 +166,9 @@ Per work package, code + rodata:
 **7,208 B of the 7,680 B `CRYPTO_OVERLAY` window — 93.9%, 472 B headroom.
 No image split was needed** (HANDOFF-P2 decision 1's fallback). Placed
 contiguously, CODE+RODATA needs 7,231 B: the span plus this link's 23 B
-alignment gap, which can reach 63 B in another link (contract §5). Looped,
+alignment gap (≤ 63 B while RODATA directly follows CODE at `align = $40`;
+contract §5 gives only `(-previous_end) mod alignment`, and a consumer that
+reorders or aligns more coarsely can pay more). Looped,
 table-driven code everywhere except the Keccak permutation, where P3 spent
 489 B of unrolling (theta's column body, the 25-lane rho+pi script, the
 rotation ladders) on the 58% of the cycle count it owns.
