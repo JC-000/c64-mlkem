@@ -27,6 +27,12 @@ CA65  = ca65
 LD65  = ld65
 AR65  = ar65
 
+# A failed recipe must not leave its target behind. ca65 writes the .o before
+# it opens the .d, so a .d it cannot write (EACCES, ENOSPC) would otherwise
+# leave a fresh .o with no .d: the retry exits 0 and later header edits never
+# rebuild that object.
+.DELETE_ON_ERROR:
+
 CA65FLAGS          ?=
 CONTRACT_DEFINES   ?=
 CONTRACT_ZP_DEFINES ?=
@@ -56,7 +62,10 @@ CONTRACT_ZP_DEFINES ?=
 # Both properties matter. A guard which has quietly degraded to an
 # unconditional rebuild still passes a check that only exercises the
 # change-rebuilds leg, which is why `make check-staleness` asserts both.
-CONFIG_SIG := $(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
+# `deps1` names the build scheme, not a knob: object trees built before the
+# ca65 .d files existed have objects and no .d, so a header edit there would
+# still rebuild nothing. The changed signature wipes such a tree once.
+CONFIG_SIG := deps1|$(CA65FLAGS)|$(CONTRACT_DEFINES)|$(CONTRACT_ZP_DEFINES)
 CONFIG_STAMP = build/.config-sig
 
 # Rejected, not invalidated. MLKEM_KECCAK_ONLY is not a consumer knob: it
@@ -197,6 +206,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
+        check-deps check-deps-rebuild check-deps-selftest \
         vectors help rig rig-full rig-turbo
 
 all: $(PRG)
@@ -215,25 +225,31 @@ $(PRG): $(LINK_OBJS) $(CFG) | $(BUILD_DIR)
 # that receives CONTRACT_ZP_DEFINES (§6.2 scoping rule: a slot define must
 # reach every TU that DEFINES the slot and no TU that .importzp's it).
 $(TOBJ_DIR)/zp_config.o: $(SRC_DIR)/zp_config.s | $(TOBJ_DIR)
-	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) $(CONTRACT_ZP_DEFINES) -o $@ $<
+	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) $(CONTRACT_ZP_DEFINES) -o $@ $< --create-full-dep $(@:.o=.d)
 
 $(TOBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(TOBJ_DIR)
-	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $<
-
-$(OBJ_DIR)/mlkem_keccak.o $(TOBJ_DIR)/keccak.o: $(SRC_DIR)/keccak_tables.inc
-$(OBJ_DIR)/mlkem_ntt.o $(TOBJ_DIR)/ntt.o: $(SRC_DIR)/mlkem_tables.inc $(SRC_DIR)/sqtab_base.inc
-$(OBJ_DIR)/mlkem_sqtab.o $(TOBJ_DIR)/sqtab.o $(TOBJ_DIR)/main.o: $(SRC_DIR)/sqtab_base.inc
-
-# §8.4: the canonical macro source is .include'd from the manifest TU only.
-$(OBJ_DIR)/mlkem_lib_manifest.o $(TOBJ_DIR)/lib_manifest.o: $(SRC_DIR)/precalc_table.inc
+	$(CA65) $(ALL_CA65FLAGS) $(TEST_DEFINES) -o $@ $< --create-full-dep $(@:.o=.d)
 
 $(OBJ_DIR)/mlkem_%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
-	$(CA65) $(ALL_CA65FLAGS) -o $@ $<
+	$(CA65) $(ALL_CA65FLAGS) -o $@ $< --create-full-dep $(@:.o=.d)
 
 # The mlkem-keccak.a manifest: same source, same CONTRACT_DEFINES, plus the
 # member-set selector. Nothing else is ever built into KOBJ_DIR.
-$(KOBJ_DIR)/mlkem_lib_manifest.o: $(SRC_DIR)/lib_manifest.s $(SRC_DIR)/precalc_table.inc | $(KOBJ_DIR)
-	$(CA65) $(ALL_CA65FLAGS) -D MLKEM_KECCAK_ONLY=1 -o $@ $<
+$(KOBJ_DIR)/mlkem_lib_manifest.o: $(SRC_DIR)/lib_manifest.s | $(KOBJ_DIR)
+	$(CA65) $(ALL_CA65FLAGS) -D MLKEM_KECCAK_ONLY=1 -o $@ $< --create-full-dep $(@:.o=.d)
+
+# Header dependencies come from ca65 itself: every recipe above writes
+# --create-full-dep next to its object, listing every file that TU included
+# (nested includes too: constants.s pulls in sqtab_base.inc everywhere; the
+# §8.4 precalc_table.inc reaches the manifest TUs only). The .d files are
+# written as a side effect of assembling and nothing here can make one, so
+# they never trigger a make restart or a rebuild of their own. ca65 also
+# emits an empty rule per header, so deleting a header does not break a warm
+# tree. Before the first build there is no .d, and no object either.
+# Each .d lives in its object's tree, so the configuration guard's rm -rf of
+# obj/tobj/kobj removes it together with the object: a .d assembled under
+# another configuration can never be included.
+-include $(wildcard $(OBJ_DIR)/*.d $(TOBJ_DIR)/*.d $(KOBJ_DIR)/*.d)
 
 $(OBJ_DIR) $(TOBJ_DIR) $(KOBJ_DIR):
 	@mkdir -p $@
@@ -371,6 +387,30 @@ check-sqtab-guard:
 check-harness-routing:
 	@$(TOOLS_DIR)/check_harness_routing.sh
 
+# Header dependencies: an edited header must invalidate every object whose TU
+# includes it, in every object tree (tobj / obj / kobj), and an unchanged tree
+# must rebuild nothing. Without that, a value edit on a warm tree answers
+# "Nothing to be done" and ships stale objects (measured: SHAKE128_RATE
+# 168 -> 136 in src/constants.s, warm PRG != clean PRG at byte 1685).
+# Both run in a scratch COPY of the working tree, never in build/, and take
+# the include graph from ca65 --create-full-dep on the exact command lines
+# make runs — not from this file's text.
+#   check-deps          asks make (-n) which objects a newer header would
+#                       re-assemble; names `object -> missing header`. Seconds.
+#   check-deps-rebuild  per header: warm build, value edit, incremental make,
+#                       == clean build of the edited tree (images byte-exact,
+#                       objects/members by od65 dump); a second make runs no
+#                       ca65/ld65/ar65. ~15 s, no VICE.
+check-deps:
+	@$(PYTHON) $(TOOLS_DIR)/check_deps.py -q
+check-deps-rebuild:
+	@$(PYTHON) $(TOOLS_DIR)/check_deps_rebuild.py
+# Both checkers against known-broken Makefiles (kobj without its .d, FORCE on
+# a probe, no build-scheme tag, ...): each must FAIL, or the checker has been
+# switched off. Parallel scratch trees, ~7 s, no VICE.
+check-deps-selftest:
+	@$(PYTHON) $(TOOLS_DIR)/test_check_deps.py
+
 # --- tests ------------------------------------------------------------------
 
 # Oracle self-tests, pure Python, no VICE: tools/keccak_ref.py against the
@@ -436,7 +476,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -522,5 +562,8 @@ help:
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
+	@echo "make check-deps   every include is a prerequisite of its object, as make resolves it"
+	@echo "make check-deps-rebuild  per header: value edit + incremental make == clean build; no-op make rebuilds nothing"
+	@echo "make check-deps-selftest both dependency checkers FAIL on known-broken Makefiles"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"
