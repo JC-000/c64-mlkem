@@ -27,6 +27,12 @@ CA65  = ca65
 LD65  = ld65
 AR65  = ar65
 
+# A failed recipe must not leave its target behind. ca65 writes the .o before
+# it opens the .d, so a .d it cannot write (EACCES, ENOSPC) would otherwise
+# leave a fresh .o with no .d: the retry exits 0 and later header edits never
+# rebuild that object.
+.DELETE_ON_ERROR:
+
 CA65FLAGS          ?=
 CONTRACT_DEFINES   ?=
 CONTRACT_ZP_DEFINES ?=
