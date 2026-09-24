@@ -436,7 +436,8 @@ compare against the model's checkpoint for that exact round and step. A
 mismatch names the round and the step. Only the repo's own test build
 (`make` / `make test`) sets it; passed through `CONTRACT_DEFINES`,
 `CA65FLAGS` or `CONTRACT_ZP_DEFINES` it is rejected at parse time, so no
-archive can ship the hooks (`make check-staleness` proves the rejection fires).
+consumer knob can put the hooks in an archive (`make check-staleness` proves
+the rejection fires).
 
 Because ρ and π are **fused** into one destination-indexed copy in the
 assembly, `After rho` has no counterpart to compare against; the fused step is
