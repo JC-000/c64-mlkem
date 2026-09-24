@@ -52,55 +52,88 @@ PR URLs, their classification (PATCH/MINOR) and `make verify` status.
 
 ---
 
-## SESSION HANDOFF — 2026-09-01 (supervising session restart)
+---
 
-State of the world for the next session. Verified, not assumed.
+## SESSION HANDOFF — 2026-09-24 (supersedes the 2026-09-01 handoff)
+
+State of the world for the next session. Verified at `main` a8b27f7, not
+assumed.
 
 ### Done and public
-- **v0.5.0 tagged, pushed, released** (P2 complete); releases backfilled for
-  v0.2.0–v0.4.0, "Latest" badge on v0.5.0.
-- **Lane B done.** c64-lib-contract intake: #156 (adopters row) **merged**,
-  #157 (§8.1 `$`-free, → v0.14.2) **merged**, #158 (§8.4 bare-precalc
-  carve-out, → v0.15.0) **merged**. `docs/upstream/README.md` records them.
-- **Lane A done, awaiting merge.** `p3/optimisation` branch, PR
-  https://github.com/JC-000/c64-mlkem/pull/2 — **OPEN, user has not merged**.
-  v0.5.1: Keccak-f[1600] **339,688** (link-invariant), KeyGen 21,801,702,
-  Encaps 24,880,455, Decaps 29,597,879, keygen+decaps **51,399,581** (−17%),
-  7,208 B shipped (472 B under the window). Supervisor-verified on a clean
-  rebuild: `make test` OK, bench reproduces to the cycle, 45/45 mutants.
+- **v0.5.1 tagged and released** (Latest). The tag sits on the PR #2 merge
+  e40c49c.
+- **PR #5, hardware validation (merged).** `make rig` / `rig-full` /
+  `rig-turbo` (`tools/rig_*.py`) run on the U64E (fw 3.15; `U64_HOST`
+  defaults to 10.43.23.81).
+  - At 1 MHz the cycle counts **equal VICE exactly**: Keccak 339,688; KeyGen
+    21,801,702; Encaps 24,880,455; Decaps 29,597,879.
+  - Decaps is **constant-time on hardware**: a valid ct and ct with c1 or c2
+    tampered all give 29,597,879.
+  - At 48 MHz turbo every output is correct. The CIA ticks once per 47 CPU
+    cycles, so the speed-up is 47×; the rigs assert no counts at turbo.
+  - New trap, recorded in CLAUDE.md: host reads of C64 memory steal CPU
+    cycles on the U64E (about 10 + 1.15 cycles per byte for each
+    `read_bytes`).
+  - The rigs are not part of `make test`.
+- **The mutation gate is 48/48** (WP1 15, WP2 13, WP3 18, P1 2). It gains the
+  first Keccak/sponge mutants and `wp3-cmp-mismatch-timing`, a pure timing
+  leak that only T1 kills.
+- **PR #6: the contract target is now SPEC 1.2.3** (on main, untagged; latest
+  tag v1.2.2).
+  - `check-manifest` uses the §5 placed span: 7,208 / 1,947, declared 7424 /
+    2048.
+  - `check-precalc` is pinned to tag v1.2.2 via `CONTRACT_PRECALC_REF`.
+  - Retired-clause citations are gone.
+  - Shipped artifacts are unchanged.
+- **PR #7: header dependencies now come from ca65 `--create-full-dep`**, with
+  `.DELETE_ON_ERROR` and a `deps1` tag in `CONFIG_SIG`. Before this, a value
+  edit to `constants.s` shipped a stale PRG. It is guarded by `check-deps`,
+  `check-deps-rebuild` and `check-deps-selftest` (about 40 s, no VICE).
+  - The first `make` in any tree built before #7 rebuilds everything once;
+    that is expected.
+- **Repo is clean:** only `main`, no worktrees, no open PRs of ours.
 
-### Immediately actionable, in order
-1. **PR #2**: the user merges (or requests changes). After merge: tag
-   `v0.5.1` (annotated, style of `git tag -n` v0.5.0), push tag, `gh release
-   create` from the tag message, `--latest`.
-2. **Contract drift**: SPEC at origin is **0.17.1 (2026-08-31)** — FOUR
-   releases past the 0.13.0 the P2 conformance work targeted (0.14.x–0.17.x
-   landed in three days; #157/#158 are inside that run). Nobody has assessed
-   0.15.0→0.17.1 against this repo. Diff §12 changelog from 0.14.1 up and
-   re-run the WP5-style clause-verdict pass (`docs/contract-p2-alignment.md`
-   is the model). Watch specifically for anything touching §8.1/§8.4 (our
-   PRs may have been amended in later releases) and any new §14.
-3. **Adopters row** upstream cites v0.5.0 numbers; after v0.5.1 tags, a
-   row-refresh PR (PATCH, row-only) with the new RESIDENT (7424) and cycles.
+### Open, not started
+1. **Adopters row upstream** (c64-lib-contract `adopters.md`) still cites
+   v0.5.0. A row-only PR with v0.5.1 numbers is needed: RESIDENT 7424;
+   placed span 7,208; contiguous 7,231; the cycles above; 48/48; hardware-
+   validated on the U64E. That is an outward-facing PR, so confirm with the
+   user first.
+2. **When contract 1.2.3 (or later) is tagged,** move `CONTRACT_PRECALC_REF`
+   deliberately. Do not track the contract's `main`.
 
 ### Deferred by explicit user decision (do NOT start unprompted)
-- **Fit**: c64-https `CRYPTO_OVERLAY` has only ~2.5 KB actually free vs our
-  7,208 B. Split-vs-replan is a joint P4 decision with c64-https.
-- **Hardware validation** (`rig_*.py`, none exist yet): U64E is tied up with
-  firmware testing. When free: cycle counts should reproduce at 1 MHz; check
-  turbo behaviour even though this library has no REU/device I/O.
+- **Fit (P4):** the c64-https `CRYPTO_OVERLAY` has only ~2.5 KB actually free.
+  A consumer needs **7,231 B contiguous** (7,208 plus a 23 B CODE→RODATA gap;
+  ≤ 63 B only while RODATA directly follows CODE at `align = $40`).
+  Split-vs-replan is a joint decision with c64-https.
 
-### Repo mechanics the next session must know
-- **PRs are now the convention for c64-mlkem** (user asked for a PR record;
-  P1/P2 went direct-to-main, P3 onward does not).
-- 11 git worktrees under `.claude/worktrees/` — all merged, safe to
-  `git worktree remove` + prune; user was told, hasn't asked.
-- The P2/P3 protocol that the user explicitly wants kept (see
-  `HANDOFF-P2.md`): red tests by a separate agent from the spec; implementer
-  may not edit tests; adversarial mutation gate (45 mutants, `make
-  test-mutants`) before merge; `wp2-rodata-align-reverted` must be re-picked
-  after ANY code-size change (layout-dependent by construction, documented in
-  tools/mutants/README.md); NEVER run two VICE-driven make targets
-  concurrently; oracle red ⇒ everything downstream meaningless.
-- Session memory (decisions + open items) also lives in the Claude memory
-  dir: `p2-plan-decisions.md` there mirrors this section.
+### How the user wants work run
+- **PRs for everything.** The user merges. After a merge, clean up the
+  worktree and branch (local and origin).
+- **Protocol:**
+  - A red author (a fresh agent) writes failing checks first.
+  - The implementer may not edit them.
+  - A fresh-context adversarial reviewer mutates both the fix and the checks,
+    and runs `make test` plus `make test-mutants`.
+  - Surviving checker mutants go back to the red author.
+  - The PR opens only after an accept verdict.
+- **Local model:** use the local model (Qwen3.6 on the lab box) for drafting,
+  always with a Claude reviewer.
+  - Call it as `LA_KEY_ID=kcb3b03f1
+    /Users/someone/Documents/ebullientprism/tools/local-agent/invoke.sh`.
+    The key is this repo's own, read from the Keychain; never echo it.
+  - Set `LA_MAX_TOKENS` ≥ 16384, because it is a reasoning model.
+  - There is no concurrency cap (the server queues); set a generous
+    `LA_TIMEOUT`. Haiku is the fallback.
+  - Qwen reliably gets mechanics right, but loses or **invents** facts when it
+    adapts text or lacks context, and never says so. Review every line.
+- **Parallel VICE is fine:** up to 10 instances via c64-test-harness 0.12.4.
+  Never run two `make`s in one build tree.
+- **U64E:** available, and all access goes through the harness device queue.
+- **Supervising:** check long-running agents actively; do not wait on
+  notifications. Two agents once sat idle for ~5 h after their background work
+  finished. Agent message timestamps are UTC.
+
+Session memory (decisions and open items) is mirrored in the Claude memory dir:
+`p2-plan-decisions.md` and `local-model-qwen.md`.

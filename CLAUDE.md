@@ -1,13 +1,15 @@
 # CLAUDE.md — working notes for agents in this repo
 
 Read `HANDOFF.md` (P1, Keccak) and `HANDOFF-P2.md` (P2, ML-KEM-768) first;
-they are the authoritative briefs. This file records the conventions that are
-easy to get wrong.
+they are the authoritative briefs. For current state, open items and how the
+user wants work run, read the latest SESSION HANDOFF at the end of
+`HANDOFF-P3.md`. This file records the conventions that are easy to get wrong.
 
 ## Scope discipline
 
 P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
-landed (v0.5.1, implementation-only, ABI 2). No changes to `c64-https` (consumer
+landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
+(`make rig`). No changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
 
