@@ -79,6 +79,19 @@ ifneq (,$(findstring MLKEM_KECCAK_ONLY,$(CONTRACT_DEFINES) $(CA65FLAGS)))
 $(error MLKEM_KECCAK_ONLY is selected by `make lib-keccak`, not by CONTRACT_DEFINES: no target can honor it as a build-wide define (contract §6.4))
 endif
 
+# Rejected for the same reason. MLKEM_TEST_HOOKS configures the standalone
+# test PRG and is set by this file alone (TEST_DEFINES, build/tobj). Through a
+# consumer knob it reaches the archive tree too: `make lib CONTRACT_DEFINES=
+# "-D MLKEM_TEST_HOOKS=1"` shipped an mlkem.a whose mlkem_keccak.o exported 8
+# symbols instead of 2 (issue #1), test scaffolding as §6.5 contract surface.
+# No archive target can honor it. CONTRACT_ZP_DEFINES is included for
+# completeness. Both rejections must stay ABOVE the signature $(shell) below:
+# after it, a refused invocation has already rewritten the stamp and wiped
+# the tree. `make check-staleness` proves both fire and leave build/ intact.
+ifneq (,$(findstring MLKEM_TEST_HOOKS,$(CONTRACT_DEFINES) $(CA65FLAGS) $(CONTRACT_ZP_DEFINES)))
+$(error MLKEM_TEST_HOOKS is selected by the repo's own test build (`make` / `make test`, build/tobj), not by CONTRACT_DEFINES / CA65FLAGS / CONTRACT_ZP_DEFINES: no archive target can honor it without shipping test-hook exports as contract surface (§6.5))
+endif
+
 # Run at PARSE time, deliberately — not from a recipe. By the time a recipe
 # runs, make has already stat'd its targets and decided what is up to date;
 # deleting the PRG from a recipe then leaves make convinced it still exists and
@@ -322,7 +335,8 @@ check-archives: lib lib-keccak
 
 # Repo-local configuration invalidation, both legs. Leg 1 alone is not a
 # test: a guard that has degraded to an unconditional rebuild passes it. Leg 2
-# is what catches that.
+# is what catches that. Also proves the two rejected knobs (MLKEM_KECCAK_ONLY,
+# MLKEM_TEST_HOOKS) fail at parse time and leave build/ untouched.
 check-staleness:
 	@$(TOOLS_DIR)/check_staleness.sh
 
@@ -559,7 +573,7 @@ help:
 	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
 	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
-	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
+	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs; the rejected knobs fire"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make check-deps   every include is a prerequisite of its object, as make resolves it"
