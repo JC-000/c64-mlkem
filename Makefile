@@ -197,6 +197,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
+        check-deps check-deps-rebuild \
         vectors help rig rig-full rig-turbo
 
 all: $(PRG)
@@ -371,6 +372,25 @@ check-sqtab-guard:
 check-harness-routing:
 	@$(TOOLS_DIR)/check_harness_routing.sh
 
+# Header dependencies: an edited header must invalidate every object whose TU
+# includes it, in every object tree (tobj / obj / kobj), and an unchanged tree
+# must rebuild nothing. Without that, a value edit on a warm tree answers
+# "Nothing to be done" and ships stale objects (measured: SHAKE128_RATE
+# 168 -> 136 in src/constants.s, warm PRG != clean PRG at byte 1685).
+# Both run in a scratch COPY of the working tree, never in build/, and take
+# the include graph from ca65 --create-full-dep on the exact command lines
+# make runs — not from this file's text.
+#   check-deps          asks make (-n) which objects a newer header would
+#                       re-assemble; names `object -> missing header`. Seconds.
+#   check-deps-rebuild  per header: warm build, value edit, incremental make,
+#                       == clean build of the edited tree (images byte-exact,
+#                       objects/members by od65 dump); a second make runs no
+#                       ca65/ld65/ar65. ~10 s, no VICE.
+check-deps:
+	@$(PYTHON) $(TOOLS_DIR)/check_deps.py -q
+check-deps-rebuild:
+	@$(PYTHON) $(TOOLS_DIR)/check_deps_rebuild.py
+
 # --- tests ------------------------------------------------------------------
 
 # Oracle self-tests, pure Python, no VICE: tools/keccak_ref.py against the
@@ -436,7 +456,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -522,5 +542,7 @@ help:
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
+	@echo "make check-deps   every include is a prerequisite of its object, as make resolves it"
+	@echo "make check-deps-rebuild  per header: value edit + incremental make == clean build; no-op make rebuilds nothing"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"
