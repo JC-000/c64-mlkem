@@ -206,7 +206,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         bench bench-sampler bench-kem tables lib lib-keccak \
         check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
-        check-deps check-deps-rebuild \
+        check-deps check-deps-rebuild check-deps-selftest \
         vectors help rig rig-full rig-turbo
 
 all: $(PRG)
@@ -405,6 +405,11 @@ check-deps:
 	@$(PYTHON) $(TOOLS_DIR)/check_deps.py -q
 check-deps-rebuild:
 	@$(PYTHON) $(TOOLS_DIR)/check_deps_rebuild.py
+# Both checkers against known-broken Makefiles (kobj without its .d, FORCE on
+# a probe, no build-scheme tag, ...): each must FAIL, or the checker has been
+# switched off. Parallel scratch trees, no VICE.
+check-deps-selftest:
+	@$(PYTHON) $(TOOLS_DIR)/test_check_deps.py
 
 # --- tests ------------------------------------------------------------------
 
@@ -471,7 +476,7 @@ test-mlkem-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -559,5 +564,6 @@ help:
 	@echo "make check-prefix every archive export under a permitted prefix"
 	@echo "make check-deps   every include is a prerequisite of its object, as make resolves it"
 	@echo "make check-deps-rebuild  per header: value edit + incremental make == clean build; no-op make rebuilds nothing"
+	@echo "make check-deps-selftest both dependency checkers FAIL on known-broken Makefiles"
 	@echo "make vectors      fetch NIST CAVP LongMsg vectors (ACVP ML-KEM sets are tracked)"
 	@echo "make clean"

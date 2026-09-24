@@ -14,7 +14,7 @@ Method (seconds, no VICE, scratch copy of the working tree):
      tools/depgraph.py). That is the true include graph, per object tree and
      per configuration, nested includes followed by the assembler.
   2. Normalise mtimes: sources T_SRC, build outputs T_BUILD. `make -n` must
-     then assemble nothing — a warm, unchanged tree rebuilds NOTHING (generated
+     then run no ca65, ld65 or ar65 — a warm, unchanged tree rebuilds NOTHING (generated
      .d files are a classic source of spurious rebuilds).
   3. For every file in the graph: set it alone to T_EDIT (newer than every
      output by an hour — no sleeping, no 1-second-granularity coin toss), ask
@@ -67,6 +67,9 @@ def main():
             dg.die("FATAL: make -n failed on the warm tree")
         for o in spurious:
             fail.append("FAIL %s: re-assembled on an UNCHANGED warm tree (spurious rebuild)" % o)
+        # ...and nothing is re-linked or re-archived either.
+        for l in dg.tool_lines_in_dry_run(out, ("ld65", "ar65")):
+            fail.append("FAIL unchanged warm tree would still run: %s" % l[:200])
 
         files = sorted({d for _, deps in g.values() for d in deps})
         for f in files:
@@ -93,7 +96,7 @@ def main():
         print("check-deps: FAIL (%d gap(s))" % len(fail))
         sys.exit(1)
     print("check-deps: OK (%d objects, %d files: every include is a prerequisite as make "
-          "resolves it; unchanged tree assembles nothing)" % (len(g), len(files)))
+          "resolves it; unchanged tree runs no ca65/ld65/ar65)" % (len(g), len(files)))
 
 
 if __name__ == "__main__":

@@ -30,9 +30,16 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # probe links (which pull every archive member, so their images cover every
 # member's bytes).
 TARGETS = ["all", "lib", "lib-keccak", "build/mlkem-lib.prg", "build/mlkem-keccak-lib.prg"]
+# Linked images and the files shipped next to the archives (compared byte for
+# byte: a shipped sqtab_base.inc that is not re-copied is a stale artifact).
 IMAGES = ["build/mlkem.prg", "build/labels.txt", "build/mlkem.map",
           "build/mlkem-lib.prg", "build/mlkem-lib.map",
           "build/mlkem-keccak-lib.prg", "build/mlkem-keccak-lib.map"]
+# Verbatim copies of sources; not evidence that an edit changed what the
+# assembler emitted, so check_deps_rebuild's vacuity test ignores them.
+SHIPPED = ["build/lib/mlkem.inc", "build/lib/zp_config.s", "build/lib/sqtab_base.inc",
+           "build/lib/cfg/mlkem-example.cfg"]
+IMAGES = IMAGES + SHIPPED
 ARCHIVES = ["build/lib/mlkem.a", "build/lib/mlkem-keccak.a"]
 
 # Fixed mtimes, all in the past. GNU Make 3.81 (macOS) compares mtimes at
@@ -47,6 +54,9 @@ ARCHIVES = ["build/lib/mlkem.a", "build/lib/mlkem-keccak.a"]
 T_SRC = "202001010000"      # touch -t format, local time
 T_BUILD = "202001010100"
 T_EDIT = "202001010200"
+# Second tier, for scenarios that build once more before the edit.
+T_BUILD2 = "202001010300"
+T_EDIT2 = "202001010400"
 
 SCRUB_ENV = ["MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEFILES", "MAKEOVERRIDES",
              "CA65FLAGS", "CONTRACT_DEFINES", "CONTRACT_ZP_DEFINES", "GNUMAKEFLAGS"]
@@ -211,6 +221,31 @@ def normalise_mtimes(tree):
             p = os.path.join(d, n)
             if not os.path.islink(p):
                 os.utime(p, (t, t))
+
+
+def set_build_mtimes(tree, stamp):
+    """Everything under build/ -> stamp (sources untouched)."""
+    import time
+    t = time.mktime(time.strptime(stamp, "%Y%m%d%H%M"))
+    for d, dirs, files in os.walk(os.path.join(tree, "build")):
+        for n in files + dirs:
+            p = os.path.join(d, n)
+            if not os.path.islink(p):
+                os.utime(p, (t, t))
+
+
+def tool_lines_in_dry_run(text, tools=("ca65", "ld65", "ar65")):
+    """Lines of a `make -n` transcript that would run one of `tools`."""
+    import shlex
+    hits = []
+    for line in text.splitlines():
+        try:
+            toks = shlex.split(line, comments=False)
+        except ValueError:
+            toks = line.split()
+        if any(os.path.basename(t) in tools for t in toks):
+            hits.append(line.strip())
+    return hits
 
 
 def ca65_objects_in_dry_run(text):
