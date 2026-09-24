@@ -243,6 +243,14 @@ unchanged knob rebuilds nothing — on three knobs: the ZP slot, the sqtab base,
 and the Keccak-only manifest. Leg 1 alone passes on a guard that has degraded
 to an unconditional rebuild.
 
+Header edits are the same bug class along a different axis. Every ca65
+recipe writes `--create-full-dep` to a `.d` file next to its object, and the
+Makefile `-include`s those files. There are no hand-listed header
+prerequisites, and no rule builds a `.d`, so make never restarts. The guard's
+`rm -rf` of the object trees takes the `.d` files with it. `make check-deps`
+(make resolves every include) and `make check-deps-rebuild` (incremental ==
+clean, and a second make runs nothing) are the regression guards.
+
 ## Tests
 
 - `test_*.py` = runnable-by-CI logic tests; `rig_*.py` = needs real hardware.
