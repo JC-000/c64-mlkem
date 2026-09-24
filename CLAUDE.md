@@ -177,7 +177,8 @@ has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
   with `-D MLKEM_KECCAK_ONLY=1`): masks 0/0, no §8.4 rows, `RESIDENT_BYTES`
   2048 (measured 1947). §6.4 forbids one manifest describing two member sets.
   `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** —
-  no target can honor it build-wide. `check-archives` pins both manifests'
+  no target can honor it build-wide. `MLKEM_TEST_HOOKS` is rejected the same
+  way; see Validation. `check-archives` pins both manifests'
   values with `od65`; `check-staleness` pins that alternating `lib` /
   `lib-keccak` on a warm tree rebuilds nothing and overwrites neither.
 - **`sqtab` lives outside every segment** at `LIB_SHARED_SQTAB_BASE`
@@ -211,7 +212,13 @@ When adding 6502 step functions, keep them individually callable behind
 shipped archive never defines that switch, so the export surface — which §6.5
 makes contract surface — stays minimal and stable. `make` and `make lib` build
 from two separate object trees (`build/tobj` and `build/obj`) precisely so the
-two configurations cannot leak into each other; §6.4 requires it.
+two configurations cannot leak into each other; §6.4 requires it. The
+separate trees guard only the Makefile's own route (`TEST_DEFINES`): a consumer
+knob reaches both, and `make lib CONTRACT_DEFINES="-D MLKEM_TEST_HOOKS=1"`
+once shipped 8 exports from `mlkem_keccak.o` instead of 2 (issue #1). So
+`MLKEM_TEST_HOOKS` in `CONTRACT_DEFINES`, `CA65FLAGS` or `CONTRACT_ZP_DEFINES`
+is **rejected at parse time**, like `MLKEM_KECCAK_ONLY`; `check-staleness`
+proves both rejections fire and leave `build/` untouched.
 
 That harness is not decoration. It caught `keccak_clear` clearing exactly one
 byte (counting down from 199 with `bpl`, whose bit 7 is already set) on the
@@ -243,7 +250,9 @@ Two things about the fix that will look like over-engineering and are not:
 `check-staleness` asserts **both** legs — changed knob flips the artifact, and
 unchanged knob rebuilds nothing — on three knobs: the ZP slot, the sqtab base,
 and the Keccak-only manifest. Leg 1 alone passes on a guard that has degraded
-to an unconditional rebuild.
+to an unconditional rebuild. Knobs no target can honor (`MLKEM_KECCAK_ONLY`,
+`MLKEM_TEST_HOOKS`) are rejected instead, and the same check proves each
+rejection exits non-zero with its message before the stamp is rewritten.
 
 Header edits are the same bug class along a different axis. Every ca65
 recipe writes `--create-full-dep` to a `.d` file next to its object, and the

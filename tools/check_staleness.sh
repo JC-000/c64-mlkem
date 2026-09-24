@@ -26,6 +26,14 @@
 #      alternating between them on a warm tree must neither rebuild nor
 #      overwrite the other's manifest. Compared on od65 export VALUES.
 #
+# Rejected knobs (a knob no target can honor must FAIL at parse time, never
+# build): MLKEM_KECCAK_ONLY and MLKEM_TEST_HOOKS through the consumer
+# variables. Each must exit non-zero with its own message and leave build/
+# untouched — same config stamp, same file list, same archive bytes (a guard
+# that stopped firing flips the stamp and wipes the tree before any recipe).
+# Then the positive side: plain `make all lib` still ships 2 exports from
+# mlkem_keccak.o, and the standalone tree still carries the hooks.
+#
 # PRG knobs compare linked PRGs, never archives: ca65 stamps a wall-clock
 # OPT_DATETIME into every object, so .o/.a bytes differ across time-separated
 # builds regardless of configuration.
@@ -106,5 +114,44 @@ else
     echo "  leg 2 ok [MLKEM_KECCAK_ONLY]: alternating lib / lib-keccak rebuilds nothing and keeps both manifests"
 fi
 
+# --- rejected knobs: parse-time error, nothing built or overwritten --------
+make all lib lib-keccak >/dev/null          # default tree to compare against
+snapshot() { cat build/.config-sig; echo; find build -type f | sort; \
+             shasum -a 256 build/lib/mlkem.a build/lib/mlkem-keccak.a build/obj/mlkem_keccak.o 2>&1; }
+before=$(snapshot)
+for knob in 'CONTRACT_DEFINES=-D MLKEM_TEST_HOOKS=1' 'CA65FLAGS=-D MLKEM_TEST_HOOKS=1' \
+            'CONTRACT_ZP_DEFINES=-D MLKEM_TEST_HOOKS=1' \
+            'CONTRACT_DEFINES=-D MLKEM_KECCAK_ONLY=1' 'CA65FLAGS=-D MLKEM_KECCAK_ONLY=1'; do
+    name=${knob#*-D }; name=${name%%=*}
+    if out=$(make "$knob" lib lib-keccak 2>&1); then
+        echo "FAIL reject [$knob]: make exited 0 (the define was accepted)"
+        fail=1
+    elif ! printf '%s' "$out" | grep -q "\*\*\* $name is selected by"; then
+        echo "FAIL reject [$knob]: non-zero exit without the rejection message:"
+        printf '%s\n' "$out" | tail -3
+        fail=1
+    elif [ "$(snapshot)" != "$before" ]; then
+        echo "FAIL reject [$knob]: rejected, but build/ changed (stamp, file list or archive bytes)"
+        fail=1
+    else
+        echo "  reject ok [$knob]: parse-time error, build/ untouched"
+        continue
+    fi
+    make all lib lib-keccak >/dev/null      # a failed leg must not cascade
+    before=$(snapshot)
+done
+
+out=$(make all lib 2>&1) || { echo "FAIL: plain make all lib failed after the rejections"; printf '%s\n' "$out" | tail -3; fail=1; }
+n=$(od65 --dump-exports build/obj/mlkem_keccak.o | grep -c 'Name:' || true)
+if [ "$n" != 2 ]; then
+    echo "FAIL positive [make lib]: shipped mlkem_keccak.o exports $n symbols, expected 2 (test hooks in the archive?)"
+    fail=1
+elif ! od65 --dump-exports build/tobj/keccak.o | grep -q '"keccak_theta"'; then
+    echo "FAIL positive [make]: standalone build/tobj/keccak.o lacks the keccak_theta test hook (TEST_DEFINES route broken)"
+    fail=1
+else
+    echo "  positive ok: shipped mlkem_keccak.o exports 2; standalone tree keeps its test hooks"
+fi
+
 [ "$fail" -eq 0 ] || exit 1
-echo "check-staleness: OK (config invalidation, both legs, three knobs)"
+echo "check-staleness: OK (config invalidation, both legs, three knobs; two rejected knobs fire)"
