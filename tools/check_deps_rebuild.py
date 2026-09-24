@@ -42,9 +42,12 @@ header this script has no edit for FAILS, so a new include cannot slip past):
      its header changed differs from the clean one even when its code bytes
      happen not to depend on the edited value (the latent sqtab_base.inc
      case).
-  7. the clean edited build must differ in CONTENT (images, or dumps with the
-     file-mtime lines removed) from the clean unedited baseline, or the edit
-     proves nothing and the check fails.
+  7. the clean edited build must differ in CONTENT from the clean unedited
+     baseline, or the edit proves nothing and the check fails. CONTENT is the
+     images and od65 dumps with the Files section's per-file Size and
+     Modification time lines removed, and without the shipped source copies
+     (build/lib/*.inc etc.): both only show that the SOURCE changed, so a
+     whitespace-only edit is rejected as non-changing.
 """
 import argparse
 import os

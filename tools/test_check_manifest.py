@@ -183,7 +183,8 @@ def test_wiring(makefile):
     mk = open(makefile).read()
     print("Makefile wiring")
     t = prereqs(mk, "test") or []
-    for need in ("check-manifest", "check-precalc", "check-manifest-selftest", "check-precalc-selftest"):
+    for need in ("check-manifest", "check-precalc", "check-manifest-selftest", "check-precalc-selftest",
+                 "check-deps", "check-deps-rebuild", "check-deps-selftest"):
         expect(need in t, f"`test:` depends on {need}  [{need} removed from test]")
     cm = prereqs(mk, "check-manifest") or []
     expect("$(LIB_PROBE)" in cm and "$(LIB_PROBE_KECCAK)" in cm,

@@ -400,14 +400,14 @@ check-harness-routing:
 #   check-deps-rebuild  per header: warm build, value edit, incremental make,
 #                       == clean build of the edited tree (images byte-exact,
 #                       objects/members by od65 dump); a second make runs no
-#                       ca65/ld65/ar65. ~10 s, no VICE.
+#                       ca65/ld65/ar65. ~15 s, no VICE.
 check-deps:
 	@$(PYTHON) $(TOOLS_DIR)/check_deps.py -q
 check-deps-rebuild:
 	@$(PYTHON) $(TOOLS_DIR)/check_deps_rebuild.py
 # Both checkers against known-broken Makefiles (kobj without its .d, FORCE on
 # a probe, no build-scheme tag, ...): each must FAIL, or the checker has been
-# switched off. Parallel scratch trees, no VICE.
+# switched off. Parallel scratch trees, ~7 s, no VICE.
 check-deps-selftest:
 	@$(PYTHON) $(TOOLS_DIR)/test_check_deps.py
 
