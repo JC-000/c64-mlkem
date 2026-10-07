@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -1055,7 +1055,7 @@
+         jsr encrypt_body::rho_set   ; cmp_acc = OR over c ^ c'
+ 
+         jsr mlkem_shake256_init
+-        SRC IDX_SEED, 32
++        SRC IDX_SEED, 0             ; MUTANT: J keyed with d instead of z
+         ABSORB 32                   ; z
+         SRC IDX_CT, 0
+         ABSORB CT_BYTES             ; || c

@@ -37,18 +37,20 @@
 ; reads the declared values from that archive's manifest member with od65,
 ; and FAILS if one is below the measured placed span).
 ;
-; P3 measurement (v0.5.1) — the shipped mlkem.a configuration, no test hooks:
-;   LIB_MLKEM_CODE   6311 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
+; v0.6.0 measurement — the shipped mlkem.a configuration, no test hooks:
+;   LIB_MLKEM_CODE   6644 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
 ;                              1629 NTT/field + 221 samplers + 681 codecs +
-;                              1941 K-PKE/ML-KEM)
+;                              2274 K-PKE/ML-KEM, of which mlkem_decaps_seed
+;                              is 333)
 ;   LIB_MLKEM_RODATA  897 B   (192 Keccak RC + 407 zetas/NTT + 32 CBD +
 ;                              256 compress tables + 1 + 9 B align pad)
 ;   ------------------------
-;   resident         7208 B   -> declared 7424 (next 256-B boundary)
-; The standalone test PRG (-D MLKEM_TEST_HOOKS=1) measures 7381 B, +173 B of
-; per-layer / K-PKE hook entry points; 7424 covers both. 93.9% of the 7,680 B
-; c64-https CRYPTO_OVERLAY window (README: what is actually free in it is a
-; P4 question). v0.5.0 was 6719 B (5694 + 1025), declared 6912.
+;   resident         7541 B   -> declared 7680 (next 256-B boundary)
+; 98.2% of the 7,680 B c64-https CRYPTO_OVERLAY window, 139 B headroom
+; (README: what is actually free in it is a P4 question). The standalone test
+; PRG (-D MLKEM_TEST_HOOKS=1) measures 7714 B, +173 B of per-layer / K-PKE
+; hook entry points: it ships in no archive, and 7680 no longer covers it.
+; v0.5.1 was 7208 B (6311 + 897), declared 7424; v0.5.0 6719 B, 6912.
 ;
 ; P1 (Keccak only, the mlkem-keccak.a configuration): 1755 code + 192 rodata
 ; = 1947 B -> declared 2048 (v0.3.0-v0.5.0: 1477 B, declared 1536).
@@ -65,12 +67,12 @@
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
 ; Per archive (§6.4): the Keccak-only member set is 1947 B measured, the full
-; set 7208 B. Both are literal decimals so tools/check_manifest.py can read
+; set 7541 B. Both are literal decimals so tools/check_manifest.py can read
 ; them without evaluating expressions.
 .ifdef MLKEM_KECCAK_ONLY
 LIB_MLKEM_RESIDENT_BYTES = 2048
 .else
-LIB_MLKEM_RESIDENT_BYTES = 7424
+LIB_MLKEM_RESIDENT_BYTES = 7680
 .endif
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).

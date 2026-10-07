@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -1048,7 +1048,7 @@
+         PTRSETI IDX_M, kem_hb + 32
+         PTRSETI IDX_PSEED, kem_hb + 96
+         PTRSET IDX_OUT, IDX_CT, 0
+-        lda #1
++        lda #0                      ; MUTANT: encrypt writes c' over c, nothing is compared
+         sta kp_cmp
+         lda #0
+         sta cmp_acc

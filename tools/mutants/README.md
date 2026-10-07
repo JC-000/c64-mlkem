@@ -219,3 +219,21 @@ What the run taught:
 - **No red-phase test defect surfaced**: every mutant was killed by the
   suite and vector designed for it, with the first differing byte naming the
   field (2336 = H(ek), 384 = s_1, 322 = u_1, 960 = c2, 31 = the last K byte).
+
+## v0.6.0 mutants (`mlkem_decaps_seed`) — gate run, all 6 KILLED
+
+`"test": "make test-decaps-seed DS_ARGS=\"--only kgdec\""` (the timing one:
+`--only timing`). Patches are against `src/kem.s` on
+`feat/decaps-from-seed`. Unlike the earlier work packages, these and the
+suite they target (`tools/test_decaps_seed.py`) were written by the same
+agent as the implementation; the independent adversarial pass is still owed.
+None pads: the suite does not depend on RODATA's page phase.
+
+| name | fault | class | localising failure line |
+|---|---|---|---|
+| `seed-cmp-off` | the seed entry sets `kp_cmp = 0`: `encrypt_body` WRITES c' over the caller's c instead of comparing, `cmp_acc` stays 0, every ciphertext is accepted | logic | `mlkem_decaps_seed [keyGen tcId 26 modified c]: returned the VALID K' for a modified ciphertext` (also `c unchanged` fails) |
+| `seed-select-mask-forced` | the shared select (`mlkem_decaps::select`): `and c_hi` → `and #$FF` + `nop`, same size and cycles; K' whatever the compare said | logic | `mlkem_decaps_seed [keyGen tcId 26 modified c]: returned the VALID K' for a modified ciphertext` |
+| `seed-z-is-d` | J keyed with `seed+0` (d) instead of `seed+32` (z): only the rejection value is wrong | pointer | `mlkem_decaps_seed [keyGen tcId 26 modified c]: K differs at byte 0 (got B6 want C4)` — valid cases pass |
+| `seed-hek-rho-short` | regeneration: the streamed H(ek) absorbs 31 of ρ's 32 bytes | length | `mlkem_decaps_seed [keyGen tcId 26 valid c]: K differs at byte 0 (got 1C want 82)` — the valid c no longer re-encrypts, so this is J(z‖c) |
+| `seed-su-shat0` | regeneration / decrypt: `el_su` multiplies every u_i by ŝ[0] | order | `mlkem_decaps_seed [keyGen tcId 26 valid c]: K differs at byte 0 (got 1C want 82)` |
+| `seed-reject-skips-j` | pure timing leak: J(z‖c) computed only when the compare failed. Every output is still right (on a match hb3 holds r', which the $FF mask discards) | timing | `mlkem_decaps_seed: constant-time in c: valid c=47,701,547; c ^ bit 0 of byte 0=50,794,295; c ^ bit 7 of byte 1087=50,794,295` — the only failure |

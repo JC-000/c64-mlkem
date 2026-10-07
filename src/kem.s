@@ -23,6 +23,11 @@
 ;     mlkem_decaps   in dk, ct         out key           A = 0; implicit
 ;                    rejection yields J(z || c) silently. No §7.3 H(ek) check
 ;                    (the caller's, per FIPS 203).
+;     mlkem_decaps_seed  in seed = d || z (64 B), ct   out key   A = 0.
+;                    = mlkem_decaps(KeyGen(d, z).dk, ct), with no dk or ek
+;                    buffer: s_hat, t_hat and rho are regenerated from d and
+;                    H(ek) is absorbed from t_hat encoded one polynomial at a
+;                    time. Reads neither EK, DK nor Z.
 ;
 ; No alignment requirement on any wire buffer: every byte-string access is
 ; (zp),y with a 16-bit pointer. Polynomials live in page-aligned BSS below.
@@ -77,7 +82,7 @@
 .import mlkem_compress_1, mlkem_compress_4, mlkem_compress_10
 .import mlkem_decompress_1, mlkem_decompress_4, mlkem_decompress_10
 
-.export mlkem_keygen, mlkem_encaps, mlkem_decaps
+.export mlkem_keygen, mlkem_encaps, mlkem_decaps, mlkem_decaps_seed
 .export mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
 .export mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
 .export mlkem_status
@@ -723,6 +728,21 @@ have:
 ; Leaves t_hat in kem_pvb and rho in kem_hb[0..32) for mlkem_keygen.
 ; =============================================================================
 .proc kpke_keygen
+        jsr kpke_keygen_core
+        PTRSET IDX_RUN, IDX_EK, 0
+        VEC >kem_pvb, el_enc12      ; ek = ByteEncode12(t_hat) ...
+        SRCI kem_hb
+        DST IDX_EK, EK_T_BYTES
+        jsr copy32                  ;      || rho
+        PTRSET IDX_RUN, IDX_DK, 0
+        VEC >kem_pva, el_enc12      ; dk_pke = ByteEncode12(s_hat)
+        lda #0
+        rts
+.endproc
+
+; kpke_keygen_core: SEED = d -> s_hat in kem_pva, t_hat in kem_pvb,
+; rho in kem_hb[0..32). Writes no caller buffer (mlkem_decaps_seed).
+.proc kpke_keygen_core
         jsr mlkem_sha3_512_init
         SRC IDX_SEED, 0
         ABSORB 32
@@ -738,14 +758,6 @@ have:
         VEC >kem_pva, el_sample     ; s_hat, N = 0..2
         VEC >kem_pvb, el_sample     ; e_hat, N = 3..5
         VEC >kem_pvb, el_trow       ; t_hat = A o s_hat + e_hat
-        PTRSET IDX_RUN, IDX_EK, 0
-        VEC >kem_pvb, el_enc12      ; ek = ByteEncode12(t_hat) ...
-        SRCI kem_hb
-        DST IDX_EK, EK_T_BYTES
-        jsr copy32                  ;      || rho
-        PTRSET IDX_RUN, IDX_DK, 0
-        VEC >kem_pva, el_enc12      ; dk_pke = ByteEncode12(s_hat)
-        lda #0
         rts
 .endproc
 
@@ -760,6 +772,7 @@ have:
 .endproc                            ; falls through
 .proc encrypt_body
         PTRSET IDX_RHO, IDX_EKP, EK_T_BYTES
+rho_set:                            ; mlkem_decaps_seed enters here, RHO set
         lda #0
         sta kp_nonce
         VEC >kem_pva, el_sample     ; y_hat, N = 0..2
@@ -805,6 +818,7 @@ have:
         PTRSET IDX_IN, IDX_DK, 0
         VEC >kem_pvb, el_dec12      ; s_hat
         jsr dot_ab                  ; pacc = INTT(s_hat . u_hat)
+w_sub:                              ; mlkem_decaps_seed enters here: v in kem_pt
         lda #>kem_pacc
         jsr set_src
         lda #>kem_pt
@@ -952,7 +966,8 @@ ok:
         lda #0
         sta cmp_acc
         jsr kpke_encrypt            ; cmp_acc = OR over c ^ c'
-
+select:                             ; mlkem_decaps_seed enters here: K' in hb2,
+                                    ; K_bar in hb3, cmp_acc final
         ; mask = $FF iff cmp_acc = 0 (c = c'), branch-free:
         ; (x | -x) has bit 7 set iff x != 0; shift it into carry; 0 - borrow.
         lda cmp_acc
@@ -977,6 +992,103 @@ ok:
         lda #0
         sta mlkem_status
         rts
+.endproc
+
+; =============================================================================
+; PUBLIC: ML-KEM-768 Decaps from the KeyGen seed. SEED = d || z (64 B),
+; CT = c -> (KEY) = mlkem_decaps(KeyGen(d, z).dk, c). A = 0 always.
+;
+; No dk, no ek: K-PKE.KeyGen re-runs from d and leaves s_hat (pva), t_hat
+; (pvb) and rho (hb0). Then, in the eight existing polynomials and kem_hb:
+;   h   = H(ek)  t_hat[i] encoded into kem_pt one polynomial at a time and
+;                absorbed from there, then rho                     -> hb2
+;   m'  = Decrypt with s_hat kept in NTT form: each u_i is decoded into
+;                kem_pt and multiplied straight into pacc, so pvb (t_hat)
+;                survives for the re-encryption   -> hb1 (sigma is dead)
+;   K', r' = G(m' || h), one 64-byte absorb from hb1               -> hb2, hb3
+;   c' compared against c by encrypt_body (t_hat in pvb, RHO = hb0)
+;   K_bar = J(z || c), after the compare (r' is dead)              -> hb3
+; and the same branch-free select as mlkem_decaps (K' hb2, K_bar hb3).
+; =============================================================================
+.proc mlkem_decaps_seed
+        jsr kpke_keygen_core        ; s_hat, t_hat, hb0 = rho
+        jsr mlkem_sha3_256_init
+        VEC >kem_pvb, el_habs       ; ByteEncode12(t_hat) ...
+        SRCI kem_hb
+        ABSORB 32                   ;   || rho
+        DSTI kem_hb + 64
+        SQUEEZE 32                  ; hb2 = h = H(ek)
+
+        lda #>kem_pacc
+        jsr zero_poly
+        PTRSET IDX_IN, IDX_CT, 0
+        VEC >kem_pva, el_su         ; pacc = sum s_hat[i] o u_hat[i]
+        lda #>kem_pacc
+        jsr set_dst
+        jsr mlkem_poly_intt
+        lda #4
+        sta enc_d
+        lda #>kem_pt
+        jsr dec_poly                ; IN = c2
+        lda #>kem_pt
+        jsr set_both
+        jsr mlkem_decompress_4      ; v in kem_pt
+        PTRSETI IDX_MOUT, kem_hb + 32
+        jsr kpke_decrypt::w_sub     ; hb1 = m'
+
+        jsr mlkem_sha3_512_init
+        SRCI kem_hb + 32
+        ABSORB 64                   ; m' || h
+        DSTI kem_hb + 64
+        SQUEEZE 32                  ; hb2 = K'
+        DSTI kem_hb + 96
+        SQUEEZE 32                  ; hb3 = r'
+
+        PTRSETI IDX_RHO, kem_hb
+        PTRSETI IDX_M, kem_hb + 32
+        PTRSETI IDX_PSEED, kem_hb + 96
+        PTRSET IDX_OUT, IDX_CT, 0
+        lda #1
+        sta kp_cmp
+        lda #0
+        sta cmp_acc
+        jsr encrypt_body::rho_set   ; cmp_acc = OR over c ^ c'
+
+        jsr mlkem_shake256_init
+        SRC IDX_SEED, 32
+        ABSORB 32                   ; z
+        SRC IDX_CT, 0
+        ABSORB CT_BYTES             ; || c
+        DSTI kem_hb + 96
+        SQUEEZE 32                  ; hb3 = K_bar = J(z || c)
+        jmp mlkem_decaps::select
+.endproc
+
+; vec_each element: absorb ByteEncode12(t_hat[i]) via kem_pt
+.proc el_habs
+        lda kp_pi
+        jsr set_src
+        DSTI kem_pt
+        jsr mlkem_byte_encode_12
+        SRCI kem_pt
+        lda #<384
+        ldy #>384
+        jmp absorb_len
+.endproc
+
+; vec_each element: pacc += s_hat[i] o NTT(Decompress10(ByteDecode10((IN))))
+.proc el_su
+        lda kp_pi
+        pha
+        lda #>kem_pt
+        sta kp_pi                   ; vec_each recomputes kp_pi every element
+        jsr el_dec10                ; kem_pt = u_hat[i]
+        pla
+        jsr set_src                 ; s_hat[i]
+        lda #>kem_pt
+        jsr set_dst
+        jsr mlkem_poly_basemul
+        jmp pacc_add_pt
 .endproc
 
 ; =============================================================================

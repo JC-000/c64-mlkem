@@ -42,6 +42,14 @@ below). No ML-DSA ever. No REU anywhere.
    mutants were added on `hw/rig-validation`). All constant-time claims are
    measured cycle pins, not assertions.
 5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
+6. **v0.6.0 (additive, ABI 2): `mlkem_decaps_seed`** — Decaps from the 64 B
+   seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
+   the same inputs: 51,057,588). **+333 B code, +0 BSS**: resident is now
+   **7,541 B, declared 7680** (98.2% of the window, 139 B headroom; the
+   7,714 B test build is no longer covered). Its link also moves NTT / INTT /
+   basemul by +64 / +64 / +128 (RODATA page phase) and KeyGen by +12 (the
+   shared `kpke_keygen_core` call); items 2–3 above are v0.5.1's link. 54
+   mutants (six `seed-*`); `make test-decaps-seed` is in `make test`.
 
 **The headline must not be softened:** Keccak is now inside the roadmap's
 150–350k band (3% under its top) only after a 26% cut, and it is still 58%

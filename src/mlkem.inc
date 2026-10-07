@@ -176,6 +176,7 @@ MLKEM_INC_INCLUDED = 1
 ;   mlkem_keygen   seed = d, z          -> ek, dk            A = 0
 ;   mlkem_encaps   ek, seed = m         -> key = K, ct = c   A = status
 ;   mlkem_decaps   dk, ct               -> key = K           A = 0
+;   mlkem_decaps_seed  seed = d || z (64 B), ct  -> key = K  A = 0  (v0.6.0)
 ;
 ; mlkem_encaps status (A, and latched in mlkem_status): 0 = ok; 1 = ek failed
 ; the FIPS 203 §7.2 modulus check (a 12-bit field of t_hat >= q) — nothing
@@ -183,14 +184,23 @@ MLKEM_INC_INCLUDED = 1
 ; mlkem_decaps never fails: a ciphertext that does not re-encrypt yields
 ; K = J(z || c) silently, in constant time (full-length compare, masked
 ; select). The §7.3 H(ek) check on dk is the caller's per FIPS 203; this
-; library does not perform it. mlkem_keygen / mlkem_decaps also clear
+; library does not perform it. mlkem_keygen / mlkem_decaps / _seed also clear
 ; mlkem_status.
+;
+; mlkem_decaps_seed is Decaps for a caller that kept only KeyGen's seed: the
+; 64 bytes at mlkem_arg_seed are d then z, the same d and z mlkem_keygen
+; takes as seed and z, and K is bit-identical to mlkem_decaps(dk, ct) with
+; dk = KeyGen(d, z).dk, implicit rejection included. It re-runs K-PKE.KeyGen
+; and recomputes H(ek) itself, so no dk (2,400 B) or ek (1,184 B) buffer
+; exists anywhere: mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are neither read
+; nor written, and it adds no BSS. Same constant-time compare and select as
+; mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps less 0.26M.
 ;
 ; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
 ; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
 ; BSS: 4,632 B in this TU (eight page-aligned polynomials, 320 B chunk
 ; buffer, 128 B hash scratch, the block). The matrix A is never stored.
-.import mlkem_keygen, mlkem_encaps, mlkem_decaps
+.import mlkem_keygen, mlkem_encaps, mlkem_decaps, mlkem_decaps_seed
 .import mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
 .import mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
 .import mlkem_status

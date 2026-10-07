@@ -49,11 +49,15 @@
 ;              surface is byte-identical (od65 on both archives against the
 ;              v0.4.0 header). Nothing removed or renamed, no calling
 ;              convention touched: the counter does not move.
+;   2  v0.6.0  ADDITIVE only — mlkem_decaps_seed (Decaps from the 64 B
+;              KeyGen seed d || z, no dk/ek buffer) joined the surface; every
+;              existing export and calling convention is unchanged, so the
+;              counter does not move.
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
-LIB_MLKEM_VERSION_MINOR = 5
-LIB_MLKEM_VERSION_PATCH = 1
+LIB_MLKEM_VERSION_MINOR = 6
+LIB_MLKEM_VERSION_PATCH = 0
 LIB_MLKEM_ABI_VERSION   = 2
 
 ; `: abs` is required, not decorative. These values fit in a byte, so ca65
