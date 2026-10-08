@@ -146,6 +146,7 @@ kem_pacc:       .res 512
 ; right after the polynomials). Costs <= 255 B of fill; 40 B in the probe link.
 .align 256
 kem_buf:        .res 320            ; PRF output (128) / one encoded chunk in compare mode (320)
+.assert (kem_buf .mod 256) = 0, lderror, "kem_buf is not page-aligned: LIB_MLKEM_BSS needs align = $100"
 kem_hb:         .res 4 * 32         ; hash scratch: 4 x 32 B (see each primitive)
 
 ; The parameter block. Contiguous, offsets asserted.

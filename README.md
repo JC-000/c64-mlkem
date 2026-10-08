@@ -261,7 +261,17 @@ put the 4 KB block somewhere of its own (c64-https: RAM under I/O at
 1,024 B `R1`/`R2` reduction tables, the 200 B Keccak state plus 394 B of
 sponge/rho-pi scratch, 320 B of chunk buffer, 128 B of hash scratch and the
 small stuff, plus page-alignment fill (333 B of the 2,545 in this link; 40 B of it page-aligns `kem_buf`, which kept the cycle counts identical to the unsplit link).
-v0.5.1 had one 6,641 B segment. **The wire buffers are the
+v0.5.1 had one 6,641 B segment.
+**`LIB_MLKEM_BSS`'s 2,545 B is this link's, not a constant.** Its alignment
+fill depends on the order ld65 lays out the members' fragments, which for an
+archive is archive (member) order; the adversarial review measured
+**2,312–3,197 B** across orderings. Size it from your own map, not from this
+figure. **Both bss segments hold secrets after a call**: `LIB_MLKEM_POLY_BSS`
+keeps ŝ itself (the secret key, NTT form) after `mlkem_keygen`, and the
+re-encryption's secret-derived y, e₁, e₂ and products after the two Decaps
+entries; `LIB_MLKEM_BSS` keeps `kem_hb` (m', K', r') — nothing here zeroes
+them, so a consumer that must not leave
+key material in RAM scrubs both after use. **The wire buffers are the
 caller's and are NOT counted**: `ek` 1,184 B, `dk` 2,400 B, `c` 1,088 B — a
 consumer that holds all three needs 4,672 B more, and they need no alignment.
 With `mlkem_decaps_seed` the `dk` is never needed: a client keeps the 64 B

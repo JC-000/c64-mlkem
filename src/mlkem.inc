@@ -18,11 +18,17 @@
 ;     LIB_MLKEM_CODE      library code
 ;     LIB_MLKEM_RODATA    round constants / rho-offset tables
 ;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
-;                         parameter block (2,545 B incl. alignment fill) —
+;                         parameter block (2,545 B incl. alignment fill in
+;                         the probe link; the fill follows archive member
+;                         order, 2,312-3,197 B measured — size from your map)
+;                         —
 ;                         REQUIRES align = $100
 ;     LIB_MLKEM_POLY_BSS  the eight K-PKE polynomials, exactly 4,096 B —
 ;                         REQUIRES align = $100 (v0.6.0; may sit in a
-;                         different area from LIB_MLKEM_BSS)
+;                         different area from LIB_MLKEM_BSS). Holds s_hat
+;                         after mlkem_keygen and secret-derived polys after
+;                         Decaps, as LIB_MLKEM_BSS holds m'/K'/r': nothing
+;                         zeroes them; scrub both if that matters to you.
 ;                         Both are bss: each must come after every
 ;                         file-emitting segment of its area (a mid-area bss
 ;                         segment makes ld65 emit a shorter image and
