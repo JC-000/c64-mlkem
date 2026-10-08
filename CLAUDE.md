@@ -35,7 +35,9 @@ below). No ML-DSA ever. No REU anywhere.
    of that window is actually free in c64-https' default UCI cfg, so the
    consumer must re-plan its overlay (P4; fit is explicitly deferred per
    HANDOFF-P3). Keccak-only member set: 1,947 B, declared 2048.
-   **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B).
+   **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B). Since v0.6.0
+   it is two segments: `LIB_MLKEM_POLY_BSS` 4,096 B (the eight polys) and
+   `LIB_MLKEM_BSS` 2,545 B placed (333 B of it alignment fill, incl. a page-aligned `kem_buf` that keeps the cycle counts identical to the unsplit link).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
    199 per-step Keccak checks; **55/55 mutants killed** (WP1 15, WP2 13,

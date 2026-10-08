@@ -32,7 +32,8 @@
 ; No alignment requirement on any wire buffer: every byte-string access is
 ; (zp),y with a 16-bit pointer. Polynomials live in page-aligned BSS below.
 ;
-; MEMORY PLAN — eight polynomials (4,096 B), never the matrix:
+; MEMORY PLAN — eight polynomials (4,096 B, alone in LIB_MLKEM_POLY_BSS so a
+; consumer can place them separately), never the matrix:
 ;     kem_pva[3]  s_hat (keygen) / y_hat (encrypt) / u_hat (decrypt)
 ;     kem_pvb[3]  e_hat -> t_hat (keygen) / t_hat (encrypt) / s_hat (decrypt)
 ;     kem_pt      one sampled A[i][j], then the basemul product; also e / mu
@@ -126,7 +127,7 @@ IDX_OUT   = 26
 k_byte:         .byte KEM_K         ; the "|| k" byte of G(d || k)
 
 ; =============================================================================
-.segment "LIB_MLKEM_BSS"
+.segment "LIB_MLKEM_POLY_BSS"
 
 ; Page-aligned polynomials FIRST (ld65 aligns the whole fragment; odd bytes
 ; declared before an .align would still land after it AND push it a page).
@@ -135,8 +136,15 @@ kem_pva:        .res 3 * 512
 kem_pvb:        .res 3 * 512
 kem_pt:         .res 512
 kem_pacc:       .res 512
-.assert (kem_pva .mod 256) = 0, lderror, "kem_pva is not page-aligned: LIB_MLKEM_BSS needs align = $100"
+.assert (kem_pva .mod 256) = 0, lderror, "kem_pva is not page-aligned: LIB_MLKEM_POLY_BSS needs align = $100"
+.assert kem_pacc + 512 - kem_pva = 4096, error, "LIB_MLKEM_POLY_BSS must be exactly the eight polynomials"
 
+.segment "LIB_MLKEM_BSS"
+
+; kem_buf is page-aligned so its (zp),y walks cross a page at a fixed offset
+; in every link (before the split it was page-aligned by accident, sitting
+; right after the polynomials). Costs <= 255 B of fill; 40 B in the probe link.
+.align 256
 kem_buf:        .res 320            ; PRF output (128) / one encoded chunk in compare mode (320)
 kem_hb:         .res 4 * 32         ; hash scratch: 4 x 32 B (see each primitive)
 

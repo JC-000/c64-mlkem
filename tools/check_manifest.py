@@ -26,7 +26,8 @@ enforced below):
         remains CPU-resident in every consumer" = LIB_MLKEM_CODE +
         LIB_MLKEM_RODATA. COLD = "Code+rodata footprint a consumer MAY
         overlay-page" = no segment in this library (it ships none).
-        LIB_MLKEM_BSS feeds no §5 figure; it is reported, not checked.
+        LIB_MLKEM_BSS and LIB_MLKEM_POLY_BSS feed no §5 figure; they are
+        reported, not checked.
 
 Each archive gets its own manifest (§6.4) and its own probe link; the
 declared values are read from THAT archive's mlkem_lib_manifest.o member with
@@ -70,7 +71,7 @@ SCOPE = {
 }
 # Library segments deliberately outside every §5 footprint figure (RAM state,
 # not code+rodata). Anything LIB_MLKEM_* not listed here or in SCOPE fails G3.
-SCOPE_EXEMPT = ("LIB_MLKEM_BSS",)
+SCOPE_EXEMPT = ("LIB_MLKEM_BSS", "LIB_MLKEM_POLY_BSS")
 LIB_SEG_PREFIX = "LIB_MLKEM_"
 
 
@@ -258,10 +259,11 @@ def check_archive(name, archive, probe_map):
         if equate == "LIB_MLKEM_RESIDENT_BYTES":
             resident_placed = placed
 
-    if "LIB_MLKEM_BSS" in segs:
-        s, e, size, a = segs["LIB_MLKEM_BSS"]
-        print(f"   LIB_MLKEM_BSS      placed {size:6d} B  (objects {frag_sum('LIB_MLKEM_BSS')} B;"
-              " no §5 figure covers it — reported only)")
+    for bss in SCOPE_EXEMPT:
+        if bss in segs:
+            s, e, size, a = segs[bss]
+            print(f"   {bss:18} placed {size:6d} B  (objects {frag_sum(bss)} B;"
+                  " no §5 figure covers it — reported only)")
     print()
     return fail, resident_placed
 

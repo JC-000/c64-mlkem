@@ -211,7 +211,8 @@ Measured from the shipped `mlkem.a` linked into a probe image
 | `LIB_MLKEM_CODE` | 6,644 | Keccak 1,474 · sponge 281 · sqtab init 84 · NTT/field 1,629 · samplers 221 · codecs 681 · K-PKE/ML-KEM 2,274 (of which `mlkem_decaps_seed` 333) |
 | `LIB_MLKEM_RODATA` | 897 | Keccak 192 (the RC table; the lane tables became immediates) · zetas + NTT constants 407 · CBD 32 · compress tables 256 · 1 · 9 B `align = $40` pad |
 | **resident total** | **7,541** | declared `LIB_MLKEM_RESIDENT_BYTES = 7680` (next 256-B boundary). The 7,714 B test build is no longer covered; it ships in no archive. v0.5.1: 7,208, v0.5.0: 6,719 |
-| `LIB_MLKEM_BSS` | 6,641 | see below |
+| `LIB_MLKEM_BSS` | 2,545 | see below (incl. alignment fill) |
+| `LIB_MLKEM_POLY_BSS` | 4,096 | the eight K-PKE polynomials (v0.6.0: split out of `LIB_MLKEM_BSS`) |
 
 Per work package, code + rodata:
 
@@ -251,12 +252,16 @@ consumer will have to re-plan its overlay** — a P4, consumer-side decision,
 and one the user should have in front of them before this fit verdict is read
 as final.
 
-**BSS: 6,641 B**, none of it the caller's key material. It is eight
-page-aligned polynomials (4,096 B: the two polyvecs, one sampled `A[i][j]`
-consumed at once — the matrix is never stored — and the accumulator), the
+**BSS: 6,641 B in two segments**, none of it the caller's key material.
+`LIB_MLKEM_POLY_BSS` is exactly the eight page-aligned polynomials (4,096 B:
+the two polyvecs, one sampled `A[i][j]` consumed at once — the matrix is
+never stored — and the accumulator), split out at v0.6.0 so a consumer can
+put the 4 KB block somewhere of its own (c64-https: RAM under I/O at
+`$D000`). `LIB_MLKEM_BSS` (2,545 B) holds the
 1,024 B `R1`/`R2` reduction tables, the 200 B Keccak state plus 394 B of
 sponge/rho-pi scratch, 320 B of chunk buffer, 128 B of hash scratch and the
-small stuff, plus ~300 B of page-alignment fill. **The wire buffers are the
+small stuff, plus page-alignment fill (333 B of the 2,545 in this link; 40 B of it page-aligns `kem_buf`, which kept the cycle counts identical to the unsplit link).
+v0.5.1 had one 6,641 B segment. **The wire buffers are the
 caller's and are NOT counted**: `ek` 1,184 B, `dk` 2,400 B, `c` 1,088 B — a
 consumer that holds all three needs 4,672 B more, and they need no alignment.
 With `mlkem_decaps_seed` the `dk` is never needed: a client keeps the 64 B
@@ -622,9 +627,11 @@ Each archive ships alongside `mlkem.inc` (the public header),
 proves it by linking the archive into a probe image.
 
 **Segments** to place in your cfg — `LIB_MLKEM_CODE`, `LIB_MLKEM_RODATA`,
-`LIB_MLKEM_BSS`. `LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
-`LIB_MLKEM_BSS` **requires `align = $100`** and must be the last segment in a
-file-emitting area; `cfg/mlkem-example.cfg` states what breaks if any is
+`LIB_MLKEM_BSS`, `LIB_MLKEM_POLY_BSS` (v0.6.0; both bss segments are
+required). `LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
+`LIB_MLKEM_BSS` and `LIB_MLKEM_POLY_BSS` each **require `align = $100`** and
+must follow every file-emitting segment of their area; they may live in
+different areas; `cfg/mlkem-example.cfg` states what breaks if any is
 dropped, and the sources carry hard `.assert`s so an alignment mistake fails
 the link rather than corrupting at runtime.
 

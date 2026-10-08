@@ -59,10 +59,12 @@
 ; P1 (Keccak only, the mlkem-keccak.a configuration): 1755 code + 192 rodata
 ; = 1947 B -> declared 2048 (v0.3.0-v0.5.0: 1477 B, declared 1536).
 ;
-; LIB_MLKEM_BSS is 6641 B in the full link (527 Keccak/sponge; 1042 NTT R
-; tables + scratch; 4 sqtab init; 203 samplers/codecs; 4632 K-PKE incl. eight
-; page-aligned polynomials; the rest is page-alignment fill). BSS is not a
-; footprint equate; consumers size it from the segment itself. The wire
+; BSS is two segments since v0.6.0. LIB_MLKEM_POLY_BSS is exactly 4096 B: the
+; eight page-aligned K-PKE polynomials. LIB_MLKEM_BSS is 2545 B placed in the
+; full probe link: 2212 B of objects plus 333 B of page-alignment fill
+; (`make check-manifest` reports both).
+; v0.5.1 had both in one 6641 B LIB_MLKEM_BSS. Neither is a footprint
+; equate; consumers size them from the segments themselves. The wire
 ; buffers ek/dk/ct (1,184 + 2,400 + 1,088 B) are the CALLER's and are NOT in
 ; it. Keccak-only: 527 B.
 ; =============================================================================

@@ -17,11 +17,17 @@
 ; SEGMENTS to place in your cfg (contract §4):
 ;     LIB_MLKEM_CODE      library code
 ;     LIB_MLKEM_RODATA    round constants / rho-offset tables
-;     LIB_MLKEM_BSS       the 200-byte Keccak state — REQUIRES align = $100
-;                         and must be the LAST segment in a file-emitting
-;                         area (a mid-area bss segment makes ld65 emit a
-;                         shorter image and everything after it loads at the
-;                         wrong address, silently). See cfg/mlkem-example.cfg.
+;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
+;                         parameter block (2,545 B incl. alignment fill) —
+;                         REQUIRES align = $100
+;     LIB_MLKEM_POLY_BSS  the eight K-PKE polynomials, exactly 4,096 B —
+;                         REQUIRES align = $100 (v0.6.0; may sit in a
+;                         different area from LIB_MLKEM_BSS)
+;                         Both are bss: each must come after every
+;                         file-emitting segment of its area (a mid-area bss
+;                         segment makes ld65 emit a shorter image and
+;                         everything after it loads at the wrong address,
+;                         silently). See cfg/mlkem-example.cfg.
 ;
 ; VERSION GATE (contract §1) — .assert/lderror, never .if/.error:
 ;     .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
