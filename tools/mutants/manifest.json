@@ -458,6 +458,15 @@
       "description": "Pure timing leak: J(z || c) is computed only when the compare failed (`lda cmp_acc / bne` around a jmp to the select). Every output stays correct (on a match hb3 holds r', which the $FF mask discards); only the cycle count tells valid from tampered c.",
       "expect": "mlkem_decaps_seed: constant-time in c",
       "class": "timing"
+    },
+    {
+      "name": "seed-z-from-arg",
+      "patch": "seed-z-from-arg.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only decoys\"",
+      "kill": "tools/test_decaps_seed.py --only decoys",
+      "description": "mlkem_decaps_seed keys J with z from mlkem_arg_z (SRC IDX_Z, 0) instead of seed+32: the ABI says the entry never reads _z. Only the rejection value changes, so only the modified-c decoy cases can see it; [decoys] sets _z itself (junk A, junk B, another key's real z), so the kill does not depend on a pointer left behind by an earlier call. Same size.",
+      "expect": "mlkem_decaps_seed [decoys: junk pattern A, modified c]: K differs at byte",
+      "class": "pointer"
     }
   ]
 }

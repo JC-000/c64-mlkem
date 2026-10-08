@@ -46,8 +46,10 @@
 ;                              256 compress tables + 1 + 9 B align pad)
 ;   ------------------------
 ;   resident         7541 B   -> declared 7680 (next 256-B boundary)
-; 98.2% of the 7,680 B c64-https CRYPTO_OVERLAY window, 139 B headroom
-; (README: what is actually free in it is a P4 question). The standalone test
+; 98.2% of the 7,680 B c64-https CRYPTO_OVERLAY window; the declaration is
+; now AT the window's edge, and a contiguous placement also pays a 10-63 B
+; CODE->RODATA alignment gap, so the real headroom is 76-129 B (README: what
+; is actually free in the window is a P4 question). The standalone test
 ; PRG (-D MLKEM_TEST_HOOKS=1) measures 7714 B, +173 B of per-layer / K-PKE
 ; hook entry points: it ships in no archive, and 7680 no longer covers it.
 ; v0.5.1 was 7208 B (6311 + 897), declared 7424; v0.5.0 6719 B, 6912.

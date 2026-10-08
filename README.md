@@ -53,10 +53,15 @@ seed").
 
 ## Phase 2: ML-KEM-768 — measured
 
-> ## keygen + decaps = 51,399,581 cycles
+> ## keygen + decaps = 51,403,753 cycles (v0.6.0 link)
 >
-> KeyGen **21,801,702** · Encaps **24,880,455** · Decaps **29,597,879**
+> KeyGen **21,803,250** · Encaps **24,882,439** · Decaps **29,600,503**
 > · 50.3 s for keygen+decaps at 1.023 MHz · display blanked.
+> `mlkem_decaps_seed` (keygen+decaps in one call, no `dk`): **50,794,288**.
+>
+> (v0.5.1 measured 51,399,581: KeyGen 21,801,702 · Encaps 24,880,455 ·
+> Decaps 29,597,879. The difference is page placement plus one `jsr`, see
+> "Decaps from the seed"; the tables below are v0.5.1's.)
 >
 > (v0.5.0 measured 61,928,289: KeyGen 26,835,087 · Encaps 30,221,505 ·
 > Decaps 35,093,202. The P3 pass took 17.0% off; the levers are itemised
@@ -184,7 +189,17 @@ to `$80`, and NTT / INTT / basemul now measure 579,012 / 618,210 / 308,121
 (+64 / +64 / +128), which accounts for every remaining cycle (encaps
 3·64 + 4·64 + 12·128 = 1,984; decaps 6·64 + 5·64 + 15·128 = 2,624). A
 consumer's link sets its own page phase; Keccak-f is unaffected
-(link-invariant).
+(link-invariant). Proven by padding `LIB_MLKEM_CODE` (an experiment, not
+committed) to put RODATA at each phase: at `$40` and `$C0` NTT / INTT
+measure 578,948 / 618,146 again (basemul 307,993 / 307,998) and Encaps and
+Decaps return to v0.5.1's counts to the cycle (KeyGen to v0.5.1 + 12); at
+`$00` and `$80` all three pay the extra cycles. `mlkem_decaps_seed` spans
+50,790,128 (`$40`) to 50,794,643 (`$00`). So the dependence is on the
+RODATA offset mod 128, and the `align = $40` this library asks of a
+consumer cannot fix it. Pinning it would need `align = $80` (a wider
+worst-case gap, against 76–129 B of headroom) plus finding which table's
+accesses cross the page (not yet identified). At ≤ 0.01% of any call it is
+left alone.
 
 ### Footprint
 
@@ -208,8 +223,10 @@ Per work package, code + rodata:
 | WP3 K-PKE + ML-KEM (v0.6.0: +333 for `mlkem_decaps_seed`) | 2,275 | 30.2% |
 | alignment pad | 9 | 0.1% |
 
-**7,541 B of the 7,680 B `CRYPTO_OVERLAY` window — 98.2%, 139 B headroom**
-(v0.5.1: 7,208 B, 93.9%). **No image split was needed** (HANDOFF-P2 decision
+**7,541 B of the 7,680 B `CRYPTO_OVERLAY` window — 98.2%** (v0.5.1:
+7,208 B, 93.9%). The declared 7680 now sits at the window's edge. Real
+headroom is **76–129 B**, not 139: a contiguous placement also pays the
+CODE→RODATA alignment gap, 10 B in this link and up to 63 B in a consumer's. **No image split was needed** (HANDOFF-P2 decision
 1's fallback). Placed contiguously, CODE+RODATA needs 7,551 B: the span plus
 this link's 10 B alignment gap (≤ 63 B while RODATA directly follows CODE at `align = $40`;
 contract §5 gives only `(-previous_end) mod alignment`, and a consumer that
@@ -271,20 +288,23 @@ rejection there), random seeds and ciphertexts are run through both the
 6502's own `mlkem_keygen` → `mlkem_decaps` and the seed entry and must agree,
 and `cryptography.hazmat` `from_seed_bytes(d‖z)` supplies the independent
 oracle both ways, including its own implicit rejection of a tampered
-ciphertext. Every call also checks that the `ek`/`dk` pointers (aimed at
-junk-filled decoys) were neither written nor needed, and that seed and `c`
-are unchanged. Default 102 checks; `--full` 686 (25 keyGen seeds, all 10
+ciphertext. Every call aims `mlkem_arg_ek`, `_dk` and `_z` at decoys and checks they
+come back unchanged, and that seed and `c` are unchanged; a `[decoys]` case
+varies what they hold (two junk patterns, then another key's real `ek`,
+`dk` and `z`) and requires one identical, correct `K`, so an entry that
+read `_z` fails on its own cases. Default 102 checks; `--full` 686 (25 keyGen seeds, all 10
 ACVP ciphertexts, 6 random and 4 hazmat seeds).
 
 **Mutation gate.** Each work package's tests were written *first, by a
 different agent, from FIPS 203 and the oracle* — red against stubs before the
 implementer saw them — and then had to go red again against deliberate
 faults applied to the green tree (`tools/mutants/*.patch`, `tools/mutate.py`):
-**54 mutants — WP1 15, WP2 13, WP3 18, P1 2, seed 6 — all killed, each by
-the test the manifest names** (45 through v0.5.1; the six `seed-*` came with
-v0.6.0: compare off, select mask forced, J keyed with `d`, H(ek) one byte
-short of ρ, every `u_i` multiplied by ŝ[0], and a pure timing leak that
-computes J only on rejection, which only the cycle pin catches; three came
+**55 mutants — WP1 15, WP2 13, WP3 18, P1 2, seed 7 — all killed, each by
+the test the manifest names** (45 through v0.5.1; the seven `seed-*` came
+with v0.6.0: compare off, select mask forced, J keyed with `d`, J keyed with
+`z` read from `mlkem_arg_z`, H(ek) one byte short of ρ, every `u_i`
+multiplied by ŝ[0], and a pure timing leak that computes J only on
+rejection, which only the cycle pin catches; three came
 from the hardware validation's adversarial review: a compare that leaks the mismatch count
 by one cycle per byte, one bit of Keccak's last round constant, and a
 sponge chunk size that ignores the length's high byte and livelocks). They include the brief's required set (a wrong ζ, an
@@ -543,9 +563,10 @@ make test-vice        # per-step Keccak differential trace under VICE
 make test-sha3        # FIPS 202 KATs (make test-sha3-full for all 820)
 make test-ntt         # mod-3329 arithmetic and NTT, per layer (-full: the sweep)
 make test-sampler     # SampleNTT, CBD, ByteEncode/Decode12, Compress/Decompress
-make test-mlkem       # K-PKE + ML-KEM-768 vs ACVP, hazmat, CT decaps (-full: every vector)
+make test-mlkem       # K-PKE + ML-KEM-768 vs ACVP, hazmat, CT decaps (-full: every vector);
+                      #   then the mlkem_decaps_seed suite (it shares their code)
 make test-decaps-seed # mlkem_decaps_seed: ACVP seeds, equivalence, hazmat, CT (-full)
-make test-mutants     # the 54-patch mutation gate (tools/mutants/manifest.json)
+make test-mutants     # the 55-patch mutation gate (tools/mutants/manifest.json)
 make bench            # cycle-exact Keccak-f[1600] measurement
 make bench-kem        # KeyGen / Encaps / Decaps + NTT cycles, Keccak share separated
 make bench-sampler    # WP2 sampler/codec cycles + constant-time check

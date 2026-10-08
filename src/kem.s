@@ -772,7 +772,13 @@ have:
 .endproc                            ; falls through
 .proc encrypt_body
         PTRSET IDX_RHO, IDX_EKP, EK_T_BYTES
-rho_set:                            ; mlkem_decaps_seed enters here, RHO set
+; ENTRY CONTRACT rho_set (mlkem_decaps_seed jsr's here, skipping the line
+; above): t_hat in kem_pvb; kem_ptrs[RHO] -> rho, [M] -> m, [PSEED] -> r,
+; [OUT] -> c; kp_cmp and cmp_acc set by the caller. Nothing here may come
+; to depend on EKP — the seed entry never sets it. Edits between here and
+; the end of encrypt_body are covered by test_mlkem AND test_decaps_seed
+; (both run under `make test-mlkem`).
+rho_set:
         lda #0
         sta kp_nonce
         VEC >kem_pva, el_sample     ; y_hat, N = 0..2
@@ -818,7 +824,12 @@ rho_set:                            ; mlkem_decaps_seed enters here, RHO set
         PTRSET IDX_IN, IDX_DK, 0
         VEC >kem_pvb, el_dec12      ; s_hat
         jsr dot_ab                  ; pacc = INTT(s_hat . u_hat)
-w_sub:                              ; mlkem_decaps_seed enters here: v in kem_pt
+; ENTRY CONTRACT w_sub (mlkem_decaps_seed jsr's here): v = Decompress4(c2)
+; in kem_pt, INTT(s^T u) in kem_pacc, kem_ptrs[MOUT] -> the 32 B m'
+; destination. Clobbers kp_cmp (0). Returns via enc_poly's rts. Nothing
+; after this label may read kem_pva/kem_pvb or IDX_DK: the seed entry keeps
+; t_hat live in kem_pvb across this call.
+w_sub:
         lda #>kem_pacc
         jsr set_src
         lda #>kem_pt
@@ -966,8 +977,11 @@ ok:
         lda #0
         sta cmp_acc
         jsr kpke_encrypt            ; cmp_acc = OR over c ^ c'
-select:                             ; mlkem_decaps_seed enters here: K' in hb2,
-                                    ; K_bar in hb3, cmp_acc final
+; ENTRY CONTRACT select (mlkem_decaps_seed jmp's here): K' in kem_hb[64..96),
+; K_bar in kem_hb[96..128), cmp_acc = OR over c ^ c' (final),
+; kem_ptrs[KEY] -> K. Writes K, clears mlkem_status, returns A = 0 to the
+; public caller. Both entries depend on everything below.
+select:
         ; mask = $FF iff cmp_acc = 0 (c = c'), branch-free:
         ; (x | -x) has bit 7 set iff x != 0; shift it into carry; 0 - borrow.
         lda cmp_acc
@@ -1009,6 +1023,12 @@ select:                             ; mlkem_decaps_seed enters here: K' in hb2,
 ;   c' compared against c by encrypt_body (t_hat in pvb, RHO = hb0)
 ;   K_bar = J(z || c), after the compare (r' is dead)              -> hb3
 ; and the same branch-free select as mlkem_decaps (K' hb2, K_bar hb3).
+;
+; Code sharing: kpke_keygen was split into kpke_keygen_core + its ek/dk
+; tail (one jsr/rts added to KeyGen, +12 cycles); encrypt_body,
+; kpke_decrypt and mlkem_decaps gained only labels (rho_set, w_sub,
+; select — no instruction changed), each with its entry contract written
+; at the label.
 ; =============================================================================
 .proc mlkem_decaps_seed
         jsr kpke_keygen_core        ; s_hat, t_hat, hb0 = rho

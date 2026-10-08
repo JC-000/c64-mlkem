@@ -479,8 +479,13 @@ test-sampler-full: $(PRG)
 # WP3 merge. --full runs every ACVP vector (~150 calls of 10-40M cycles).
 MLKEM_ARGS ?=
 
+# test-mlkem also runs the mlkem_decaps_seed suite: the seed entry jumps into
+# encrypt_body, kpke_decrypt and mlkem_decaps at labels (src/kem.s, "ENTRY
+# CONTRACT"), so an edit there must answer to both suites. test_mlkem.py runs
+# first; a mutant it kills never reaches the second command.
 test-mlkem: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py $(MLKEM_ARGS)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py $(DS_ARGS)
 
 test-mlkem-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full
@@ -501,7 +506,7 @@ test-decaps-seed-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem test-decaps-seed check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a

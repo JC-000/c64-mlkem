@@ -18,8 +18,13 @@ ABI under test
     K == mlkem_decaps(dk = KeyGen(d, z).dk, c), bit for bit, including the
     implicit-rejection value J(z || c) for a ciphertext that does not
     re-encrypt. mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are neither read
-    nor written: this suite points ek/dk at junk-filled decoys and checks
-    they come back unchanged and that the result does not depend on them.
+    nor written: every call points all three at decoy buffers and checks
+    they come back unchanged. [decoys] varies what the decoys hold — two
+    junk patterns, and well-formed ek / dk / z of a DIFFERENT key — and
+    requires the identical, correct K each time, so an entry that reads any
+    of the three (z in particular, which only the rejection value shows)
+    goes red on its own cases, independent of whatever a pointer was left at
+    by an earlier call.
     The parameter block is not modified (P1); canaries follow every buffer
     (C1); seed and c are inputs and must come back unchanged.
 
@@ -44,6 +49,9 @@ stand. What this suite runs instead:
   [hazmat]  cryptography.hazmat MLKEM768PrivateKey.from_seed_bytes(d || z):
             their encapsulate() -> our K; and a tampered ct -> their
             decapsulate() (an independent implicit-rejection oracle) == ours.
+  [decoys]  one keyGen seed, valid and modified c, with mlkem_arg_ek/_dk/_z
+            aimed at junk pattern A, junk pattern B, and the real ek, dk and
+            z of another seed: K must be correct and identical in all three.
   [timing]  constant time in c: valid, bit 0 of byte 0 flipped, bit 7 of
             byte 1087 flipped must measure IDENTICALLY with the calibrated
             CIA instrument (the same protocol as test_mlkem.py T1). Also
@@ -78,7 +86,9 @@ BUF_SEED = 0x7EC0          # 64 B + canary .. $7F10 (BUF_Z is not used here)
 BUF_KEY, BUF_CT = T.BUF_KEY, T.BUF_CT
 DECOY_EK, DECOY_DK = T.BUF_EK, T.BUF_DK
 ODD_CT, ODD_KEY, ODD_SEED = T.ODD, T.ODD + 0x4B1, T.ODD + 0x4F3   # .. $7A44
+DECOY_Z = 0x7F40           # 32 B + canary .. $7F70
 DECOY = bytes((0xA7 ^ (13 * k)) & 0xFF for k in range(DK))
+DECOY_B = bytes((0x3C + 101 * k) & 0xFF for k in range(DK))
 
 ENTRY = "mlkem_decaps_seed"
 REQUIRED = [ENTRY, "mlkem_keygen", "mlkem_decaps", "mlkem_status"] + T.ARG_BLOCK
@@ -109,15 +119,20 @@ def flip(c, byte, bit):
 class Seed(T.C64):
     """test_mlkem's driver plus the seed entry."""
 
-    def decaps_seed(self, seed, c, seed_at=BUF_SEED, ct_at=BUF_CT, key_at=BUF_KEY):
+    def decaps_seed(self, seed, c, seed_at=BUF_SEED, ct_at=BUF_CT, key_at=BUF_KEY,
+                    decoys=None):
+        """decoys = (ek bytes, dk bytes, z bytes) placed behind mlkem_arg_ek,
+        _dk and _z for this call; default: junk pattern A."""
         assert len(seed) == 64
+        d_ek, d_dk, d_z = decoys or (DECOY[:EK], DECOY, DECOY[DK - 32:])
         self.put(seed_at, seed)
         self.put(ct_at, c)
         self.arm(key_at, 32)
-        write_bytes(self.t, DECOY_EK, DECOY[:EK])
-        write_bytes(self.t, DECOY_DK, DECOY)
+        write_bytes(self.t, DECOY_EK, d_ek)
+        write_bytes(self.t, DECOY_DK, d_dk)
+        write_bytes(self.t, DECOY_Z, d_z)
         self.arg("seed", seed_at); self.arg("ct", ct_at); self.arg("key", key_at)
-        self.arg("ek", DECOY_EK); self.arg("dk", DECOY_DK)
+        self.arg("ek", DECOY_EK); self.arg("dk", DECOY_DK); self.arg("z", DECOY_Z)
         a, status = self.call(ENTRY)
         k = self.get(key_at, 32)
         side = {
@@ -126,8 +141,8 @@ class Seed(T.C64):
                 and self.canary_ok(seed_at, 64),
             "seed unchanged": self.get(seed_at, 64) == seed,
             "c unchanged": self.get(ct_at, CT) == c,
-            "ek/dk decoys untouched": self.get(DECOY_EK, EK) == DECOY[:EK]
-                and self.get(DECOY_DK, DK) == DECOY,
+            "ek/dk/z decoys untouched": self.get(DECOY_EK, EK) == d_ek
+                and self.get(DECOY_DK, DK) == d_dk and self.get(DECOY_Z, 32) == d_z,
             "parameter block preserved (P1)": self.args_intact(),
             f"A={a} mlkem_status={status}, want 0": a == 0 and status == 0,
         }
@@ -251,6 +266,32 @@ def suite_hazmat(c64, full):
             print(f"    ok    {tag}")
 
 
+def suite_decoys(c64, full):
+    t = T.acvp_keygen()[0]
+    d, z = T.hx(t["d"]), T.hx(t["z"])
+    ek, dk = T.hx(t["ek"]), T.hx(t["dk"])
+    other = T.acvp_keygen()[1]
+    o_ek, o_dk, o_z = T.hx(other["ek"]), T.hx(other["dk"]), T.hx(other["z"])
+    assert o_z != z
+    k_enc, c = M.mlkem_encaps(ek, T.fixed_bytes("decaps-seed decoys m"))
+    c2 = flip(c, 500, 3)
+    sets = [("junk pattern A", (DECOY[:EK], DECOY, DECOY[DK - 32:])),
+            ("junk pattern B", (DECOY_B[:EK], DECOY_B, DECOY_B[DK - 32:])),
+            (f"real ek/dk/z of keyGen tcId {other['tcId']}", (o_ek, o_dk, o_z))]
+    print(f"\n[decoys] keyGen tcId {t['tcId']}: mlkem_arg_ek/_dk/_z aimed at "
+          f"{len(sets)} decoy sets, valid and modified c")
+    for cname, cx, want in (("valid c", c, k_enc), ("modified c", c2, M.J(z + c2))):
+        got = {}
+        for sname, dec in sets:
+            tag = f"{ENTRY} [decoys: {sname}, {cname}]"
+            ok, k = run_case(c64, tag, d + z, cx, want, decoys=dec)
+            got[sname] = k
+            if ok:
+                print(f"    ok    {tag}")
+        check(len(set(got.values())) == 1,
+              f"{ENTRY} [decoys, {cname}]: K depends on what ek/dk/z point at")
+
+
 def suite_timing(c64, full):
     import bench_keccak as B
     t, l = c64.t, c64.l
@@ -313,7 +354,7 @@ def suite_timing(c64, full):
 
 
 SUITES = {"kgdec": suite_kgdec, "acvpct": suite_acvpct, "equiv": suite_equiv,
-          "hazmat": suite_hazmat, "timing": suite_timing}
+          "hazmat": suite_hazmat, "decoys": suite_decoys, "timing": suite_timing}
 
 
 def main():

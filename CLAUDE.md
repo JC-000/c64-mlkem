@@ -13,20 +13,21 @@ landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
 
-## The numbers — as of v0.5.1 (P3 pass)
+## The numbers — v0.5.1 (P3 pass), with v0.6.0's changes in item 6
 
 1. **Keccak-f[1600] = 339,688 cycles** (14,154/round), **link-invariant**
    since v0.5.1 (P1: 456,605, and it moved with the rodata layout; 600,771
    at `v0.2.0`, which preserves that baseline). Six P3 commits, one lever
    each, numbers in their messages.
-2. **KeyGen 21,801,702 · Encaps 24,880,455 · Decaps 29,597,879 cycles.**
+2. **v0.5.1 link: KeyGen 21,801,702 · Encaps 24,880,455 · Decaps 29,597,879 cycles**
+   (v0.6.0 link: 21,803,250 · 24,882,439 · 29,600,503 — see item 6).
    keygen+decaps = **51,399,581**, of which **29.9M (58%) is 88 Keccak
    permutations** and 17.4M is NTT/INTT/basemul (578,948 / 618,146 / 307,993
    per call). Inside the 40–70M budget, just under the midpoint. About 50 s
    of CPU per TLS handshake for the PQ half alone. (v0.5.0: 61,928,289 =
    26,835,087 + 35,093,202.)
-3. **7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
-   hooks), declared 7424; contiguous CODE+RODATA is 7,231 B with this link's
+3. **v0.5.1: 7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
+   hooks), declared 7424 (v0.6.0: 7,541, declared 7680 — item 6); contiguous CODE+RODATA is 7,231 B with this link's
    23 B alignment gap (≤ 63 B while RODATA directly follows CODE at
    `align = $40`; §5 gives only `(-previous_end) mod alignment`, and a
    consumer that reorders or aligns more coarsely can pay more). **93.9% of
@@ -37,19 +38,25 @@ below). No ML-DSA ever. No REU anywhere.
    **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
-   199 per-step Keccak checks; **48/48 mutants killed** (WP1 15, WP2 13,
-   WP3 18, P1 2 — 45 at v0.5.1; the three hardware-validation adversary
-   mutants were added on `hw/rig-validation`). All constant-time claims are
+   199 per-step Keccak checks; **55/55 mutants killed** (WP1 15, WP2 13,
+   WP3 18, P1 2, seed 7 — 45 at v0.5.1; the three hardware-validation
+   adversary mutants were added on `hw/rig-validation`, the seven `seed-*`
+   with v0.6.0). All constant-time claims are
    measured cycle pins, not assertions.
 5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
 6. **v0.6.0 (additive, ABI 2): `mlkem_decaps_seed`** — Decaps from the 64 B
    seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
    the same inputs: 51,057,588). **+333 B code, +0 BSS**: resident is now
-   **7,541 B, declared 7680** (98.2% of the window, 139 B headroom; the
-   7,714 B test build is no longer covered). Its link also moves NTT / INTT /
-   basemul by +64 / +64 / +128 (RODATA page phase) and KeyGen by +12 (the
-   shared `kpke_keygen_core` call); items 2–3 above are v0.5.1's link. 54
-   mutants (six `seed-*`); `make test-decaps-seed` is in `make test`.
+   **7,541 B, declared 7680** — the declaration now sits AT the 7,680 B
+   window's edge. Real headroom in the window is **76–129 B**: the span plus
+   a CODE→RODATA alignment gap of 10 B in this link but up to 63 B in a
+   consumer's. The 7,714 B test build is no longer covered. Its link also
+   moves NTT / INTT / basemul by +64 / +64 / +128 (RODATA page phase) and
+   KeyGen by +12 (the shared `kpke_keygen_core` call); items 1–5 above are
+   v0.5.1's unless they say otherwise. 55 mutants (seven `seed-*`).
+   `make test-mlkem` runs `test_decaps_seed.py` after `test_mlkem.py`: the
+   seed entry jumps into `encrypt_body`, `kpke_decrypt` and `mlkem_decaps`
+   at labels whose entry contracts are written in `src/kem.s`.
 
 **The headline must not be softened:** Keccak is now inside the roadmap's
 150–350k band (3% under its top) only after a 26% cut, and it is still 58%
