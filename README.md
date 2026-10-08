@@ -292,7 +292,7 @@ ciphertext. Every call aims `mlkem_arg_ek`, `_dk` and `_z` at decoys and checks 
 come back unchanged, and that seed and `c` are unchanged; a `[decoys]` case
 varies what they hold (two junk patterns, then another key's real `ek`,
 `dk` and `z`) and requires one identical, correct `K`, so an entry that
-read `_z` fails on its own cases. Default 102 checks; `--full` 686 (25 keyGen seeds, all 10
+read `_z` fails on its own cases. Default 146 checks; `--full` 730 (25 keyGen seeds, all 10
 ACVP ciphertexts, 6 random and 4 hazmat seeds).
 
 **Mutation gate.** Each work package's tests were written *first, by a
