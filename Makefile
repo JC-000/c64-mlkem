@@ -489,6 +489,7 @@ test-mlkem: $(PRG)
 
 test-mlkem-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py --full
 
 # mlkem_decaps_seed (v0.6.0): Decaps from the 64 B seed d || z against ACVP
 # keyGen seeds, the ACVP decapsulation ciphertexts, the 6502's own

@@ -197,7 +197,7 @@ Decaps return to v0.5.1's counts to the cycle (KeyGen to v0.5.1 + 12); at
 50,790,128 (`$40`) to 50,794,643 (`$00`). So the dependence is on the
 RODATA offset mod 128, and the `align = $40` this library asks of a
 consumer cannot fix it. Pinning it would need `align = $80` (a wider
-worst-case gap, against 76–129 B of headroom) plus finding which table's
+worst-case gap, against 76–139 B of headroom) plus finding which table's
 accesses cross the page (not yet identified). At ≤ 0.01% of any call it is
 left alone.
 
@@ -224,9 +224,13 @@ Per work package, code + rodata:
 | alignment pad | 9 | 0.1% |
 
 **7,541 B of the 7,680 B `CRYPTO_OVERLAY` window — 98.2%** (v0.5.1:
-7,208 B, 93.9%). The declared 7680 now sits at the window's edge. Real
-headroom is **76–129 B**, not 139: a contiguous placement also pays the
-CODE→RODATA alignment gap, 10 B in this link and up to 63 B in a consumer's. **No image split was needed** (HANDOFF-P2 decision
+7,208 B, 93.9%). The declared 7680 now sits at the window's edge.
+**Headroom is 76–139 B, depending on the consumer's link.** A contiguous
+placement pays the span (7,541 B) plus the CODE→RODATA alignment gap,
+`(−code_end) mod $40`, which is 0–63 B and set by where the consumer starts
+CODE: 7,680 − 7,541 − gap. In this probe link the gap is 10 B (129 B
+headroom); with CODE at a page-aligned start it is 12 B (127 B).
+`make check-manifest` prints the range and both points. **No image split was needed** (HANDOFF-P2 decision
 1's fallback). Placed contiguously, CODE+RODATA needs 7,551 B: the span plus
 this link's 10 B alignment gap (≤ 63 B while RODATA directly follows CODE at `align = $40`;
 contract §5 gives only `(-previous_end) mod alignment`, and a consumer that

@@ -48,9 +48,10 @@ below). No ML-DSA ever. No REU anywhere.
    seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
    the same inputs: 51,057,588). **+333 B code, +0 BSS**: resident is now
    **7,541 B, declared 7680** — the declaration now sits AT the 7,680 B
-   window's edge. Real headroom in the window is **76–129 B**: the span plus
-   a CODE→RODATA alignment gap of 10 B in this link but up to 63 B in a
-   consumer's. The 7,714 B test build is no longer covered. Its link also
+   window's edge. Headroom in the window is **76–139 B**: 7,680 − 7,541 −
+   the CODE→RODATA gap, which is the consumer's, `(−code_end) mod $40` =
+   0–63 B. This probe link: gap 10 → 129 B; CODE at a page-aligned start:
+   gap 12 → 127 B. `make check-manifest` prints all three. The 7,714 B test build is no longer covered. Its link also
    moves NTT / INTT / basemul by +64 / +64 / +128 (RODATA page phase) and
    KeyGen by +12 (the shared `kpke_keygen_core` call); items 1–5 above are
    v0.5.1's unless they say otherwise. 55 mutants (seven `seed-*`).

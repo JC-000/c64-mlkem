@@ -290,7 +290,24 @@ def main():
     # CRYPTO_OVERLAY window, 7,680 B code+rodata. That is the NOMINAL window;
     # what is actually free in it is a P4 (consumer-side) question — README.
     print(f"code+rodata vs the 7,680 B CRYPTO_OVERLAY window: "
-          f"{p_res} / {WINDOW} B ({100.0 * p_res / WINDOW:.1f}%), {WINDOW - p_res} B headroom (shipped)")
+          f"{p_res} / {WINDOW} B ({100.0 * p_res / WINDOW:.1f}%) placed span (shipped)")
+    # A contiguous placement also pays the CODE->RODATA alignment gap, which
+    # is the consumer's: 0..align-1 B, (-code_end) mod align. Headroom is the
+    # window minus span minus that gap, so a range; plus two points on it.
+    psegs = {}
+    for name, archive, pmap in args.probe:
+        if name == "mlkem.a":
+            psegs = parse_segments(pmap)
+    if "LIB_MLKEM_CODE" in psegs and "LIB_MLKEM_RODATA" in psegs:
+        c_start, c_end, c_size, _ = psegs["LIB_MLKEM_CODE"]
+        r_start, _, _, r_align = psegs["LIB_MLKEM_RODATA"]
+        r_align = max(r_align, 1)
+        here = r_start - (c_end + 1)
+        paged = (-c_size) % r_align
+        print(f"headroom in the window: {WINDOW - p_res - (r_align - 1)}..{WINDOW - p_res} B"
+              f" (CODE->RODATA gap 0..{r_align - 1} B at align ${r_align:02X}); this probe link"
+              f" {WINDOW - p_res - here} B (gap {here}); CODE at a page-aligned start"
+              f" {WINDOW - p_res - paged} B (gap {paged})")
     if p_res > WINDOW:
         print("OVER the window — a per-operation image split (HANDOFF-P2 decision 1 fallback) is required.")
         fail = True
