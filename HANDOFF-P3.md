@@ -137,3 +137,51 @@ assumed.
 
 Session memory (decisions and open items) is mirrored in the Claude memory dir:
 `p2-plan-decisions.md` and `local-model-qwen.md`.
+
+## SESSION HANDOFF — 2026-10-16 (supersedes the 2026-09-24 handoff for v0.6.0 state)
+
+### What PR #10 (v0.6.0) contains
+- **`mlkem_decaps_seed`**: Decaps from the 64 B KeyGen seed `d‖z`, no `dk`/`ek`
+  buffer. 50,794,288 cycles (keygen + `mlkem_decaps` on the same inputs:
+  51,057,588). +333 B code (329 B the entry, 4 B the `jsr`/`rts` `kpke_keygen`
+  gained when split), +0 BSS. Resident 7,541 B, declared 7680 (headroom in
+  the 7,680 B window is 76–139 B, depending on the consumer's CODE→RODATA gap).
+- **`LIB_MLKEM_POLY_BSS`**: the eight K-PKE polynomials (4,096 B, `bss`,
+  `align = $100`) are a fourth, required consumer segment, so c64-https can
+  place them under I/O at `$D000`. `LIB_MLKEM_BSS` keeps 2,545 B in the
+  standard link (2,312–3,197 B across member orderings). README divergence 15.
+- **ABI 2 → 3.** The export surface is additive, but a v0.5.1-conforming cfg
+  that declares three segments now fails to link (`Missing memory area
+  assignment for segment 'LIB_MLKEM_POLY_BSS'`). SPEC §1 (line 39, "a changed
+  memory model") and §7 (line 251) move the counter. Consumer fix: add the
+  `LIB_MLKEM_POLY_BSS` line to its cfg. A Keccak-only consumer omits it or
+  marks it `optional = yes`.
+- Seven new `seed-*` mutants; the gate is **55/55**.
+
+### The measured cost to state plainly
+A client that keeps only the seed pays KeyGen + `mlkem_decaps_seed` =
+21,803,250 + 50,794,288 = **72,597,538 cycles**, which is **above** the
+roadmap's 40–70M budget. Holding `dk` it pays 51,057,588. The seed entry buys
+2,400 B of storage for about 21.5M cycles per handshake.
+
+### Review history
+The test suite landed red first (20954dd), then the implementation (f55d9bc),
+by the same agent. Three in-PR adversarial rounds ran, then an independent
+fresh-context adversarial review (2026-10-16). The full gate at 150f421 was
+55/55 killed, plus 9 extra reviewer mutants of `mlkem_decaps_seed`, all killed.
+The pre-release fixes (ABI bump, divergence 15, doc corrections) were applied
+after that review as separate commits on the same branch.
+
+### Open items
+- **No hardware rig covers `mlkem_decaps_seed`** (`rig_*.py` predate it). VICE
+  only.
+- **Constant-time is measured on one key only** (the cycle pins in
+  `test_decaps_seed.py`), not across keys.
+- **`LIB_MLKEM_POLY_BSS` at `$D000` is verified at link only**, never run
+  (the `$01` banking around every ML-KEM call is the consumer's).
+- Still deferred by user decision: the c64-https overlay fit (P4), the
+  adopters row upstream (still cites v0.5.0).
+
+### Next step
+Merge PR #10, tag v0.6.0 on the merge, then c64-https P4 wiring (add the
+`LIB_MLKEM_POLY_BSS` line, re-plan the overlay).

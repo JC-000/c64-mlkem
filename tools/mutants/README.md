@@ -224,9 +224,13 @@ What the run taught:
 
 `"test": "make test-decaps-seed DS_ARGS=\"--only kgdec\""` (the timing one:
 `--only timing`). Patches are against `src/kem.s` on
-`feat/decaps-from-seed`. Unlike the earlier work packages, these and the
-suite they target (`tools/test_decaps_seed.py`) were written by the same
-agent as the implementation; the independent adversarial pass is still owed.
+`feat/poly-bss-segment`. Unlike the earlier work packages, the suite they
+target (`tools/test_decaps_seed.py`) and the implementation were written by the
+same agent; the suite landed red first (20954dd) before the implementation
+(f55d9bc). Since then three in-PR adversarial rounds and an independent
+fresh-context adversarial review (2026-10-16) have run the full gate at
+150f421: 55/55 killed, plus 9 extra reviewer mutants of `mlkem_decaps_seed`,
+all killed.
 None pads: the suite does not depend on RODATA's page phase.
 
 | name | fault | class | localising failure line |
