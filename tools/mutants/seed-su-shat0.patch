@@ -1,0 +1,10 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -1084,6 +1084,7 @@
+         sta kp_pi                   ; vec_each recomputes kp_pi every element
+         jsr el_dec10                ; kem_pt = u_hat[i]
+         pla
++        lda #>kem_pva               ; MUTANT: s_hat[0] multiplies every u_i
+         jsr set_src                 ; s_hat[i]
+         lda #>kem_pt
+         jsr set_dst

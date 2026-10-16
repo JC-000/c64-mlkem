@@ -37,26 +37,36 @@
 ; reads the declared values from that archive's manifest member with od65,
 ; and FAILS if one is below the measured placed span).
 ;
-; P3 measurement (v0.5.1) — the shipped mlkem.a configuration, no test hooks:
-;   LIB_MLKEM_CODE   6311 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
+; v0.6.0 measurement — the shipped mlkem.a configuration, no test hooks:
+;   LIB_MLKEM_CODE   6644 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
 ;                              1629 NTT/field + 221 samplers + 681 codecs +
-;                              1941 K-PKE/ML-KEM)
+;                              2274 K-PKE/ML-KEM, of which 333 are
+;                              v0.6.0: 329 B entry + el_habs + el_su, plus
+;                              4 B: jsr kpke_keygen_core in kpke_keygen and
+;                              the rts closing kpke_keygen_core)
 ;   LIB_MLKEM_RODATA  897 B   (192 Keccak RC + 407 zetas/NTT + 32 CBD +
 ;                              256 compress tables + 1 + 9 B align pad)
 ;   ------------------------
-;   resident         7208 B   -> declared 7424 (next 256-B boundary)
-; The standalone test PRG (-D MLKEM_TEST_HOOKS=1) measures 7381 B, +173 B of
-; per-layer / K-PKE hook entry points; 7424 covers both. 93.9% of the 7,680 B
-; c64-https CRYPTO_OVERLAY window (README: what is actually free in it is a
-; P4 question). v0.5.0 was 6719 B (5694 + 1025), declared 6912.
+;   resident         7541 B   -> declared 7680 (next 256-B boundary)
+; 98.2% of the 7,680 B c64-https CRYPTO_OVERLAY window; the declaration is
+; now AT the window's edge. A contiguous placement also pays the
+; CODE->RODATA alignment gap, (-code_end) mod $40 = 0-63 B and the
+; consumer's, so the headroom is 7680 - 7541 - gap = 76-139 B: 129 B in this
+; probe link (gap 10), 127 B with CODE page-aligned (gap 12). README: what is
+; actually free in the window is a P4 question. The standalone test
+; PRG (-D MLKEM_TEST_HOOKS=1) measures 7714 B, +173 B of per-layer / K-PKE
+; hook entry points: it ships in no archive, and 7680 no longer covers it.
+; v0.5.1 was 7208 B (6311 + 897), declared 7424; v0.5.0 6719 B, 6912.
 ;
 ; P1 (Keccak only, the mlkem-keccak.a configuration): 1755 code + 192 rodata
 ; = 1947 B -> declared 2048 (v0.3.0-v0.5.0: 1477 B, declared 1536).
 ;
-; LIB_MLKEM_BSS is 6641 B in the full link (527 Keccak/sponge; 1042 NTT R
-; tables + scratch; 4 sqtab init; 203 samplers/codecs; 4632 K-PKE incl. eight
-; page-aligned polynomials; the rest is page-alignment fill). BSS is not a
-; footprint equate; consumers size it from the segment itself. The wire
+; BSS is two segments since v0.6.0. LIB_MLKEM_POLY_BSS is exactly 4096 B: the
+; eight page-aligned K-PKE polynomials. LIB_MLKEM_BSS is 2545 B placed in the
+; full probe link: 2212 B of objects plus 333 B of page-alignment fill
+; (`make check-manifest` reports both).
+; v0.5.1 had both in one 6641 B LIB_MLKEM_BSS. Neither is a footprint
+; equate; consumers size them from the segments themselves. The wire
 ; buffers ek/dk/ct (1,184 + 2,400 + 1,088 B) are the CALLER's and are NOT in
 ; it. Keccak-only: 527 B.
 ; =============================================================================
@@ -65,12 +75,12 @@
 
 ; Approximate code+rodata that must stay CPU-resident in any consumer.
 ; Per archive (§6.4): the Keccak-only member set is 1947 B measured, the full
-; set 7208 B. Both are literal decimals so tools/check_manifest.py can read
+; set 7541 B. Both are literal decimals so tools/check_manifest.py can read
 ; them without evaluating expressions.
 .ifdef MLKEM_KECCAK_ONLY
 LIB_MLKEM_RESIDENT_BYTES = 2048
 .else
-LIB_MLKEM_RESIDENT_BYTES = 7424
+LIB_MLKEM_RESIDENT_BYTES = 7680
 .endif
 
 ; Approximate code+rodata a consumer MAY overlay-page (load on demand).
@@ -79,7 +89,8 @@ LIB_MLKEM_RESIDENT_BYTES = 7424
 ; requires it. Divergence recorded in README.md.) Still 0 in P2: the two
 ; init routines (mul_tables_init 84 B, mlkem_arith_init) sit in
 ; LIB_MLKEM_CODE — splitting them into a reclaimable init segment would save
-; < 200 B and is not worth a fourth consumer segment.
+; < 200 B and is not worth a further consumer segment (v0.6.0 already adds
+; LIB_MLKEM_POLY_BSS as a fourth, for the polynomials, not for this).
 LIB_MLKEM_COLD_BYTES = 0
 
 ; Total bytes of ZP slots claimed — sum of every .exportzp slot in

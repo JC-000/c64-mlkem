@@ -137,3 +137,92 @@ assumed.
 
 Session memory (decisions and open items) is mirrored in the Claude memory dir:
 `p2-plan-decisions.md` and `local-model-qwen.md`.
+
+## SESSION HANDOFF — 2026-10-16 (v0.6.0 state; read with the 2026-09-24 one)
+
+### What PR #10 (v0.6.0) contains
+- **`mlkem_decaps_seed`**: Decaps from the 64 B KeyGen seed `d‖z`, no
+  `dk`/`ek` buffer. 50,794,288 cycles (keygen + `mlkem_decaps` on the same
+  inputs: 51,057,588). +333 B code: 329 B for the entry and its two element
+  helpers (`el_habs`, `el_su`), plus 4 B: the `jsr kpke_keygen_core` in
+  `kpke_keygen` and the `rts` closing `kpke_keygen_core`. +0 BSS. Resident
+  7,541 B, declared 7680; headroom in the 7,680 B window is 76–139 B,
+  depending on the consumer's CODE→RODATA gap.
+- **`LIB_MLKEM_POLY_BSS`**: the eight K-PKE polynomials (4,096 B, `bss`,
+  `align = $100`) are a fourth segment, required whenever `mlkem_kem.o` is
+  linked, so c64-https can place them under I/O at `$D000`. `LIB_MLKEM_BSS`
+  keeps 2,545 B in the standard link (2,312–3,197 B across member
+  orderings). README divergence 15.
+- **ABI 2 → 3.** The export surface is additive, but a v0.5.1-conforming cfg
+  that declares three segments now fails to link (`Missing memory area
+  assignment for segment 'LIB_MLKEM_POLY_BSS'`). SPEC §1 counts "a changed
+  memory model" and §7 moves the counter "when a consumer conforming to the
+  previously documented contract can be broken by the change" (read against
+  contract main, 1.2.3). A changed memory model is also breaking under §7's
+  first bullet, so its "one-MINOR-release deprecation cycle" nominally
+  applies; it was not run, because no released consumer pins a c64-mlkem tag
+  (contract `consumers.md` lists none; c64-https wiring is P4). SPEC grants
+  that zero-consumer reasoning explicitly only for the bare exports (§1) and
+  the bare `LIB_PRECALC_*` triple (§8.4), so this is a divergence (README
+  row 16). §7 classes the change MAJOR, but pre-1.0 it ships on a MINOR bump
+  (§1), hence 0.6.0. Consumer fix: add the
+  `LIB_MLKEM_POLY_BSS` line to its cfg; a Keccak-only consumer omits it or
+  marks it `optional = yes`. Gate by equality
+  (`.assert LIB_MLKEM_ABI_VERSION = 3`).
+- `make check-version` (in `make test`) pins MAJOR/MINOR/PATCH against
+  `VERSION` and the ABI against `EXPECTED_ABI` in both archives, requires
+  exactly four `: abs` exports, checks the three-segment-fails /
+  four-segment-links legs, and proves it fires on a mutated member.
+  `EXPECTED_ABI` in the Makefile moves only per SPEC §7.
+- Seven new `seed-*` mutants; the gate is **55/55**.
+
+### The measured cost to state plainly
+A client that keeps only the seed pays KeyGen + `mlkem_decaps_seed` =
+21,803,250 + 50,794,288 = **72,597,538 cycles**, **above** the roadmap's
+40–70M budget (`make bench-kem` prints the line). Holding `dk` it pays
+51,057,588: the seed path costs +21,539,950 cycles (about 21 s at 1.023 MHz)
+per handshake. What it saves is holding `dk` between KeyGen and Decaps;
+`mlkem_keygen` still writes `dk` through `mlkem_arg_dk`, so KeyGen still
+needs a transient 2,400 B buffer. That matters for the c64-https overlay plan.
+
+### Review history
+The suite landed red first (20954dd), then the implementation (f55d9bc), by
+the same agent. PR #10's description records three adversarial rounds
+(the commit messages do not say which round each commit belongs to).
+Commits that came out of review: e75ea3a ("adversarial-review amendments"),
+556bf7b ("The layout review's 2-way split") and 150f421 ("review fixes").
+At 150f421 the full gate ran 55/55 killed, and an independent fresh-context
+review (2026-10-16) added 9 throwaway mutants of `mlkem_decaps_seed`, all
+killed (not in the repo). Further review rounds (2 and 3, this session) led
+to the pre-release fixes: ABI 3, divergences 15–16, the handshake cost,
+`check-version`, the image-guard form (every MEMORY area, no-overlap) and doc
+corrections. Round 3's fixes: the guard must cover bss-only areas too, the
+guard text in `mlkem.inc`, SPEC citations (§1/§8.4 for the zero-consumer
+carve-out), RODATA align wording, and hardening of `check_version.sh`.
+Those fix commits go up as part of PR #10 before the merge.
+
+### Open items
+- **No hardware rig covers `mlkem_decaps_seed`** (`rig_*.py` predate it).
+  VICE only.
+- **Constant-time is measured on one key only** (the cycle pins in
+  `test_decaps_seed.py`), not across keys.
+- **`LIB_MLKEM_POLY_BSS` at `$D000` is verified at link only**, never run
+  (the `$01` banking around every ML-KEM call is the consumer's).
+- **The user may prefer to raise the waived deprecation cycle with the
+  contract** (README row 16). That is a decision for them, not for this repo.
+- **Upstream `c64-lib-contract` `adopters.md` (line 32) still says
+  `LIB_MLKEM_ABI_VERSION = 2`** and needs updating there. Do not touch the
+  contract repo from here. The adopters row also still cites v0.5.0; the
+  2026-09-24 handoff lists that as "Open, not started" (outward-facing PR,
+  confirm with the user first).
+- Still deferred by explicit user decision: the c64-https overlay fit (P4).
+
+### Next step
+Merge PR #10, tag v0.6.0 on the merge, then c64-https P4 wiring (add the
+`LIB_MLKEM_POLY_BSS` line, re-plan the overlay).
+
+### How work is run
+The 2026-09-24 handoff's "How the user wants work run" still applies (PRs for
+everything, user merges, red author first, fresh adversarial reviewer). This
+session's split: Sonnet implements and runs the tests; Opus does a fresh
+adversarial review each round.

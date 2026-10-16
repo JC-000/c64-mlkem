@@ -23,6 +23,10 @@ What is measured:
                                  encaps ek,m; decaps dk,c) — the same inputs
                                  tools/test_mlkem.py --full reports, so the
                                  two must agree to the cycle
+  mlkem_decaps_seed              keygen tcId 1's d||z with c = Encaps(its ek,
+                                 encaps tcId 1's m), next to mlkem_decaps on
+                                 KeyGen(d,z).dk and the same c — the two-call
+                                 path it replaces, on identical inputs
 
 The Keccak share is NOT measured by subtraction (there is nothing to subtract
 against). It is the permutation COUNT for that exact input, taken from the
@@ -127,6 +131,13 @@ def perms_decaps(dk):
             + perms_kpke_encrypt(rho))
 
 
+def perms_decaps_seed(d, z):
+    # KeyGen's hashing with H(ek) over the regenerated ek (the same 1,184
+    # bytes, streamed), then exactly Decaps' G, J and re-encryption.
+    ek, dk = M.mlkem_keygen(d, z)
+    return perms_keygen(d, z) + perms_decaps(dk)
+
+
 # NTT-level operation counts (FIPS 203 Alg. 13-15, k = 3).
 OPS = {
     # (ntt, intt, basemul)
@@ -134,6 +145,7 @@ OPS = {
     "mlkem_encaps": (K, K + 1, K * K + K),                   # y; u, v; A^T y, t^T y
     "mlkem_decaps": (K + K, 1 + K + 1, K + K * K + K),       # decrypt: u; s^T u; v-.. ; then encrypt
 }
+OPS["mlkem_decaps_seed"] = tuple(a + b for a, b in zip(OPS["mlkem_keygen"], OPS["mlkem_decaps"]))
 
 
 def main():
@@ -157,11 +169,15 @@ def main():
     d, z = hx(kg["d"]), hx(kg["z"])
     ek_en, m_en = hx(en["ek"]), hx(en["m"])
     dk_de, c_de = hx(de["dk"]), hx(de["c"])
+    ek_kg, dk_kg = M.mlkem_keygen(d, z)
+    k_ds, c_ds = M.mlkem_encaps(ek_kg, m_en)
 
     expected = {
         "mlkem_keygen": (M.mlkem_keygen(d, z), perms_keygen(d, z)),
         "mlkem_encaps": (M.mlkem_encaps(ek_en, m_en), perms_encaps(ek_en)),
         "mlkem_decaps": (M.mlkem_decaps(dk_de, c_de), perms_decaps(dk_de)),
+        "mlkem_decaps_seed": (k_ds, perms_decaps_seed(d, z)),
+        "decaps (same c)": (k_ds, perms_decaps(dk_kg)),
     }
 
     rng = random.Random(0x5EED)
@@ -243,13 +259,28 @@ def main():
         bench("mlkem_decaps", "mlkem_decaps", setup_de)
         kd = read_bytes(t, BUF_KEY, 32)
         ok_de = kd == expected["mlkem_decaps"][0]
+
+        def setup_ds():
+            write_bytes(t, BUF_SEED, d + z); write_bytes(t, BUF_CT, c_ds)
+            args(seed=BUF_SEED, ct=BUF_CT, key=BUF_KEY)
+
+        def setup_de_same():
+            write_bytes(t, BUF_DK, dk_kg); write_bytes(t, BUF_CT, c_ds)
+            args(dk=BUF_DK, ct=BUF_CT, key=BUF_KEY)
+
+        print("\nmlkem_decaps_seed vs the two-call path (keygen tcId 1's seed, one valid c)")
+        bench("mlkem_decaps_seed", "mlkem_decaps_seed", setup_ds)
+        ok_ds = read_bytes(t, BUF_KEY, 32) == expected["mlkem_decaps_seed"][0]
+        bench("decaps (same c)", "mlkem_decaps", setup_de_same)
+        ok_ds &= read_bytes(t, BUF_KEY, 32) == expected["decaps (same c)"][0]
         mgr.release(inst)
 
     if not stable:
         print("\nFAIL: a measurement did not reproduce; VICE is deterministic, so the instrument is wrong.")
         return 1
-    if not (ok_kg and ok_en and ok_de):
-        print(f"\nFAIL: measured call produced wrong output (keygen {ok_kg}, encaps {ok_en}, decaps {ok_de}); not reporting.")
+    if not (ok_kg and ok_en and ok_de and ok_ds):
+        print(f"\nFAIL: measured call produced wrong output (keygen {ok_kg}, encaps {ok_en}, "
+              f"decaps {ok_de}, decaps_seed {ok_ds}); not reporting.")
         return 1
 
     kf = results["keccak_f1600"]
@@ -278,6 +309,23 @@ def main():
     print(f"  roadmap budget {lo // 1_000_000}-{hi // 1_000_000}M for keygen+decaps: measurement falls {where}")
     print(f"  keccak_f1600 in this link: {kf:,} cycles (v0.5.1 headline 339,688, link-invariant; P1 was 456,605)")
     print(f"  ntt {ntt:,}  intt {intt:,}  basemul {bm:,}")
+
+    ds, de_same, kg_c = results["mlkem_decaps_seed"], results["decaps (same c)"], results["mlkem_keygen"]
+    n_perm = expected["mlkem_decaps_seed"][1]
+    o_ntt, o_intt, o_bm = OPS["mlkem_decaps_seed"]
+    ac = o_ntt * ntt + o_intt * intt + o_bm * bm
+    print()
+    print(f"  decaps_seed      {ds:>12,}   Keccak-f x{n_perm} = {n_perm * kf:,} ({100.0 * n_perm * kf / ds:.1f}%), "
+          f"NTT/INTT/basemul {o_ntt}/{o_intt}/{o_bm} = {ac:,} ({100.0 * ac / ds:.1f}%), rest {ds - n_perm * kf - ac:,}")
+    print(f"  keygen + decaps on the same seed and c: {kg_c:,} + {de_same:,} = {kg_c + de_same:,}; "
+          f"decaps_seed is {ds - kg_c - de_same:+,} against it")
+    # The handshake cost of a client that keeps only the seed: it still runs
+    # KeyGen to send ek. Computed from this run's measurements, same budget.
+    hs = kg_c + ds
+    hs_where = "INSIDE" if lo <= hs <= hi else "OUTSIDE"
+    print(f"  keygen + decaps_seed = {kg_c:,} + {ds:,} = {hs:,} cycles "
+          f"({hs / 1_022_727:.1f} s at 1.023 MHz): {hs_where} the {lo // 1_000_000}-{hi // 1_000_000}M budget, "
+          f"{hs - (kg_c + de_same):+,} against keygen + decaps holding dk")
     return 0
 
 

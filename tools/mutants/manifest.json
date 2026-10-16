@@ -404,6 +404,69 @@
       "description": "P1 (hardware-validation adversary, `k-chunk-hi`): the sponge chunk size ignores the high byte of the remaining length (`bne done` -> 2 nop). Any len >= 256 is worn down to a nonzero multiple of 256, where the chunk is n = 0 and absorb never advances: a LIVELOCK. The kill is the harness's 5 s jsr timeout on mlkem_absorb (expect pins that traceback frame, so a timeout at any other call site is a non-local kill) (VICE is torn down by the suite's ViceInstanceManager); mutate.py has no timeout of its own.",
       "expect": "self.l[\"mlkem_absorb\"]",
       "class": "length"
+    },
+    {
+      "name": "seed-cmp-off",
+      "patch": "seed-cmp-off.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only kgdec\"",
+      "kill": "tools/test_decaps_seed.py --only kgdec",
+      "description": "mlkem_decaps_seed sets kp_cmp = 0: encrypt_body WRITES c' over the caller's c instead of comparing, and cmp_acc stays 0, so every ciphertext is accepted and K' is returned (no implicit rejection). Same size.",
+      "expect": "mlkem_decaps_seed [keyGen tcId 26 modified c]: returned the VALID K'",
+      "class": "logic"
+    },
+    {
+      "name": "seed-select-mask-forced",
+      "patch": "seed-select-mask-forced.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only kgdec\"",
+      "kill": "tools/test_decaps_seed.py --only kgdec",
+      "description": "The shared select (mlkem_decaps::select, which mlkem_decaps_seed jumps into): `and c_hi` -> `and #$FF` + nop, so K' is selected whatever the compare said. Same size and cycles.",
+      "expect": "mlkem_decaps_seed [keyGen tcId 26 modified c]: returned the VALID K'",
+      "class": "logic"
+    },
+    {
+      "name": "seed-z-is-d",
+      "patch": "seed-z-is-d.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only kgdec\"",
+      "kill": "tools/test_decaps_seed.py --only kgdec",
+      "description": "mlkem_decaps_seed keys J with seed+0 (d) instead of seed+32 (z): only the implicit-rejection value is wrong.",
+      "expect": "mlkem_decaps_seed [keyGen tcId 26 modified c]: K differs at byte",
+      "class": "pointer"
+    },
+    {
+      "name": "seed-hek-rho-short",
+      "patch": "seed-hek-rho-short.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only kgdec\"",
+      "kill": "tools/test_decaps_seed.py --only kgdec",
+      "description": "Seed regeneration: the recomputed H(ek) absorbs 31 of rho's 32 bytes, so h, K' and r' are wrong and a valid ciphertext no longer re-encrypts.",
+      "expect": "mlkem_decaps_seed [keyGen tcId 26 valid c]: K differs at byte",
+      "class": "length"
+    },
+    {
+      "name": "seed-su-shat0",
+      "patch": "seed-su-shat0.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only kgdec\"",
+      "kill": "tools/test_decaps_seed.py --only kgdec",
+      "description": "Seed regeneration / decrypt: el_su multiplies every u_i by s_hat[0] instead of s_hat[i], so m' is wrong and a valid ciphertext is rejected.",
+      "expect": "mlkem_decaps_seed [keyGen tcId 26 valid c]: K differs at byte",
+      "class": "order"
+    },
+    {
+      "name": "seed-reject-skips-j",
+      "patch": "seed-reject-skips-j.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only timing\"",
+      "kill": "tools/test_decaps_seed.py --only timing",
+      "description": "Pure timing leak: J(z || c) is computed only when the compare failed (`lda cmp_acc / bne` around a jmp to the select). Every output stays correct (on a match hb3 holds r', which the $FF mask discards); only the cycle count tells valid from tampered c.",
+      "expect": "mlkem_decaps_seed: constant-time in c",
+      "class": "timing"
+    },
+    {
+      "name": "seed-z-from-arg",
+      "patch": "seed-z-from-arg.patch",
+      "test": "make test-decaps-seed DS_ARGS=\"--only decoys\"",
+      "kill": "tools/test_decaps_seed.py --only decoys",
+      "description": "mlkem_decaps_seed keys J with z from mlkem_arg_z (SRC IDX_Z, 0) instead of seed+32: the ABI says the entry never reads _z. Only the rejection value changes, so only the modified-c decoy cases can see it; [decoys] sets _z itself (junk A, junk B, another key's real z), so the kill does not depend on a pointer left behind by an earlier call. Same size.",
+      "expect": "mlkem_decaps_seed [decoys: junk pattern A, modified c]: K differs at byte",
+      "class": "pointer"
     }
   ]
 }

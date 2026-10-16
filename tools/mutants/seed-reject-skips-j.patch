@@ -1,0 +1,14 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -1053,7 +1053,10 @@
+         lda #0
+         sta cmp_acc
+         jsr encrypt_body::rho_set   ; cmp_acc = OR over c ^ c'
+-
++        lda cmp_acc                 ; MUTANT: J(z || c) only computed on rejection
++        bne :+
++        jmp mlkem_decaps::select
++:
+         jsr mlkem_shake256_init
+         SRC IDX_SEED, 32
+         ABSORB 32                   ; z

@@ -1,0 +1,11 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -1015,7 +1015,7 @@
+         jsr mlkem_sha3_256_init
+         VEC >kem_pvb, el_habs       ; ByteEncode12(t_hat) ...
+         SRCI kem_hb
+-        ABSORB 32                   ;   || rho
++        ABSORB 31                   ; MUTANT: last byte of rho left out of H(ek)
+         DSTI kem_hb + 64
+         SQUEEZE 32                  ; hb2 = h = H(ek)
+ 

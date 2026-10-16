@@ -16,16 +16,41 @@
 ;
 ; SEGMENTS to place in your cfg (contract §4):
 ;     LIB_MLKEM_CODE      library code
-;     LIB_MLKEM_RODATA    round constants / rho-offset tables
-;     LIB_MLKEM_BSS       the 200-byte Keccak state — REQUIRES align = $100
-;                         and must be the LAST segment in a file-emitting
-;                         area (a mid-area bss segment makes ld65 emit a
-;                         shorter image and everything after it loads at the
-;                         wrong address, silently). See cfg/mlkem-example.cfg.
+;     LIB_MLKEM_RODATA    read-only data: Keccak round constants, NTT zetas
+;                         and constants, CBD and compress tables (897 B).
+;                         REQUIRES align = $40. Dropping it makes ld65
+;                         warn; the link fails whenever the layout breaks
+;                         one of the sources' asserts (keccak_rc 8-aligned,
+;                         codec/CBD tables not straddling a page), which is
+;                         most layouts but not all. Do not rely on the
+;                         failure: keep the align.
+;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
+;                         parameter block (2,545 B incl. alignment fill in
+;                         the probe link; the fill follows archive member
+;                         order, 2,312-3,197 B measured — size from your map)
+;                         REQUIRES align = $100
+;     LIB_MLKEM_POLY_BSS  the eight K-PKE polynomials, exactly 4,096 B —
+;                         REQUIRES align = $100 (v0.6.0; may sit in a
+;                         different area from LIB_MLKEM_BSS). Holds s_hat
+;                         after mlkem_keygen and secret-derived polys after
+;                         Decaps, as LIB_MLKEM_BSS holds m'/K'/r': nothing
+;                         zeroes them; scrub both if that matters to you.
+;                         Both are bss: each must come after every
+;                         file-emitting segment of its area (a mid-area bss
+;                         segment makes ld65 emit a shorter image and
+;                         everything after it loads at the wrong address,
+;                         silently). See cfg/mlkem-example.cfg.
 ;
 ; VERSION GATE (contract §1) — .assert/lderror, never .if/.error:
 ;     .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
 ;     .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 1), lderror, "needs c64-mlkem v0.1+"
+;     mlkem_decaps_seed needs MINOR >= 6. The ABI counter is a generation
+;     counter, gated by equality (SPEC §1/§7), not by >=; this release is
+;     generation 3 (mlkem.a needs four segments, LIB_MLKEM_POLY_BSS being
+;     required; one counter covers mlkem-keccak.a too, which has no such
+;     segment):
+;     .import LIB_MLKEM_ABI_VERSION
+;     .assert LIB_MLKEM_ABI_VERSION = 3, lderror, "c64-mlkem ABI 3 required"
 ;
 ; FOOTPRINT GATE (contract §5):
 ;     .import LIB_MLKEM_RESIDENT_BYTES, LIB_MLKEM_COLD_BYTES
@@ -42,7 +67,7 @@ MLKEM_INC_INCLUDED = 1
 
 ; --- Keccak-f[1600] permutation -------------------------------------------
 ; keccak_f1600  in-place 24-round permutation of keccak_state.
-;               456,605 cycles (measured; `make bench`).
+;               339,688 cycles since v0.5.1 (measured; `make bench`).
 ;               Clobbers A/X/Y and the mlkem_zp_tmp / mlkem_zp_len slots.
 ; keccak_clear  zero all 200 state bytes.
 .import keccak_f1600, keccak_clear
@@ -121,13 +146,16 @@ MLKEM_INC_INCLUDED = 1
 ;                       LIB_MLKEM_BSS. Reads nothing else. Every routine above
 ;                       reads them, so a missing call is a wrong answer, not
 ;                       a crash.
-; Mirror the library's image guard in your own link: the linked image must
-; end at or below LIB_SHARED_SQTAB_BASE (sqtab_base.inc ships next
-; to this header and carries the standalone default; a -D on your command
-; line overrides it — never define a second default yourself):
+; Mirror the library's image guard in your own link: no MEMORY area may
+; overlap the 1,024 B window at LIB_SHARED_SQTAB_BASE (sqtab_base.inc ships
+; next to this header and carries the standalone default; a -D on your command
+; line overrides it — never define a second default yourself). One assert per
+; area of the link, file-emitting or not, each area with `define = yes`; an
+; area wholly above the window (LIB_MLKEM_POLY_BSS at $D000) passes. See
+; cfg/mlkem-example.cfg for the reasoning. For an area X, on one line:
 ;   .include "sqtab_base.inc"
-;   .import __<AREA>_LAST__
-;   .assert __<AREA>_LAST__ <= LIB_SHARED_SQTAB_BASE, lderror, "image overruns sqtab"
+;   .import __X_START__, __X_LAST__
+;   .assert (__X_LAST__ <= LIB_SHARED_SQTAB_BASE) .or (__X_START__ >= LIB_SHARED_SQTAB_BASE + $0400), lderror, "area X overlaps the sqtab window"
 .import mlkem_poly_ntt, mlkem_poly_intt, mlkem_poly_basemul
 .import mlkem_poly_add, mlkem_poly_sub, mlkem_poly_reduce
 .import mlkem_arith_init
@@ -176,6 +204,7 @@ MLKEM_INC_INCLUDED = 1
 ;   mlkem_keygen   seed = d, z          -> ek, dk            A = 0
 ;   mlkem_encaps   ek, seed = m         -> key = K, ct = c   A = status
 ;   mlkem_decaps   dk, ct               -> key = K           A = 0
+;   mlkem_decaps_seed  seed = d || z (64 B), ct  -> key = K  A = 0  (v0.6.0)
 ;
 ; mlkem_encaps status (A, and latched in mlkem_status): 0 = ok; 1 = ek failed
 ; the FIPS 203 §7.2 modulus check (a 12-bit field of t_hat >= q) — nothing
@@ -183,14 +212,32 @@ MLKEM_INC_INCLUDED = 1
 ; mlkem_decaps never fails: a ciphertext that does not re-encrypt yields
 ; K = J(z || c) silently, in constant time (full-length compare, masked
 ; select). The §7.3 H(ek) check on dk is the caller's per FIPS 203; this
-; library does not perform it. mlkem_keygen / mlkem_decaps also clear
+; library does not perform it. mlkem_keygen / mlkem_decaps / _seed also clear
 ; mlkem_status.
+;
+; mlkem_decaps_seed is Decaps for a caller that kept only KeyGen's seed: the
+; 64 bytes at mlkem_arg_seed are d then z, the same d and z mlkem_keygen
+; takes as seed and z, and K is bit-identical to mlkem_decaps(dk, ct) with
+; dk = KeyGen(d, z).dk, implicit rejection included. It re-runs K-PKE.KeyGen
+; and recomputes H(ek) itself, so no dk (2,400 B) or ek (1,184 B) buffer
+; exists during the call: mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are
+; neither read nor written, and it adds no BSS. Same constant-time compare
+; and select as mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps
+; less 0.26M. A client that keeps only the seed still runs mlkem_keygen to
+; send ek, so its handshake is KeyGen + this = 21,803,250 + 50,794,288 =
+; 72,597,538 cycles, OVER the 40-70M roadmap budget (51,057,588 holding dk:
+; +21,539,950). The saving is not holding dk between KeyGen and Decaps;
+; mlkem_keygen still writes dk through mlkem_arg_dk, so KeyGen needs a
+; transient 2,400 B buffer.
 ;
 ; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
 ; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
-; BSS: 4,632 B in this TU (eight page-aligned polynomials, 320 B chunk
-; buffer, 128 B hash scratch, the block). The matrix A is never stored.
-.import mlkem_keygen, mlkem_encaps, mlkem_decaps
+; BSS in this TU: 4,096 B in LIB_MLKEM_POLY_BSS (the eight page-aligned
+; polynomials) and 497 B in LIB_MLKEM_BSS (320 B chunk buffer, 128 B hash
+; scratch, the block; before alignment fill). The whole library's
+; LIB_MLKEM_BSS is 2,545 B placed in the standard probe link.
+; The matrix A is never stored.
+.import mlkem_keygen, mlkem_encaps, mlkem_decaps, mlkem_decaps_seed
 .import mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
 .import mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
 .import mlkem_status

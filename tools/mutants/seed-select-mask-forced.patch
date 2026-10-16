@@ -1,0 +1,12 @@
+--- a/src/kem.s
++++ b/src/kem.s
+@@ -984,7 +984,8 @@
+         ldy #31
+ :       lda kem_hb + 64,y           ; K'
+         eor kem_hb + 96,y           ; ^ K_bar
+-        and c_hi
++        and #$FF                    ; MUTANT: mask ignored, K' always selected
++        nop
+         eor kem_hb + 96,y           ; K_bar ^ (mask & (K' ^ K_bar))
+         sta (mlkem_zp_dst),y
+         dey

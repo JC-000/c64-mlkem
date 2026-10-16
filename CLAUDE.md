@@ -9,24 +9,27 @@ user wants work run, read the latest SESSION HANDOFF at the end of
 
 P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
 landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
-(`make rig`). No changes to `c64-https` (consumer
+(`make rig`). v0.6.0 adds `mlkem_decaps_seed` and the `LIB_MLKEM_POLY_BSS`
+segment (ABI 3; hardware validation of the new entry is still open). No
+changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
 
-## The numbers — as of v0.5.1 (P3 pass)
+## The numbers — v0.5.1 (P3 pass); v0.6.0 supersedes where noted (item 6)
 
 1. **Keccak-f[1600] = 339,688 cycles** (14,154/round), **link-invariant**
    since v0.5.1 (P1: 456,605, and it moved with the rodata layout; 600,771
    at `v0.2.0`, which preserves that baseline). Six P3 commits, one lever
    each, numbers in their messages.
-2. **KeyGen 21,801,702 · Encaps 24,880,455 · Decaps 29,597,879 cycles.**
+2. **v0.5.1 link: KeyGen 21,801,702 · Encaps 24,880,455 · Decaps 29,597,879 cycles**
+   (v0.6.0 link: 21,803,250 · 24,882,439 · 29,600,503 — see item 6).
    keygen+decaps = **51,399,581**, of which **29.9M (58%) is 88 Keccak
    permutations** and 17.4M is NTT/INTT/basemul (578,948 / 618,146 / 307,993
    per call). Inside the 40–70M budget, just under the midpoint. About 50 s
    of CPU per TLS handshake for the PQ half alone. (v0.5.0: 61,928,289 =
    26,835,087 + 35,093,202.)
-3. **7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
-   hooks), declared 7424; contiguous CODE+RODATA is 7,231 B with this link's
+3. **v0.5.1: 7,208 B resident** shipped (6,311 code + 897 rodata; 7,381 with test
+   hooks), declared 7424 (v0.6.0: 7,541, declared 7680 — item 6); contiguous CODE+RODATA is 7,231 B with this link's
    23 B alignment gap (≤ 63 B while RODATA directly follows CODE at
    `align = $40`; §5 gives only `(-previous_end) mod alignment`, and a
    consumer that reorders or aligns more coarsely can pay more). **93.9% of
@@ -34,14 +37,47 @@ below). No ML-DSA ever. No REU anywhere.
    of that window is actually free in c64-https' default UCI cfg, so the
    consumer must re-plan its overlay (P4; fit is explicitly deferred per
    HANDOFF-P3). Keccak-only member set: 1,947 B, declared 2048.
-   **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B).
+   **BSS 6,641 B**, excluding the caller's ek/dk/ct (4,672 B). Since v0.6.0
+   it is two segments: `LIB_MLKEM_POLY_BSS` 4,096 B (the eight polys) and
+   `LIB_MLKEM_BSS` 2,545 B placed (333 B of it alignment fill, incl. a page-aligned `kem_buf` that keeps the cycle counts identical to the unsplit link).
 4. **Every ACVP vector** (25 keyGen, 25 encaps, 10 decaps incl. modified
    ciphertexts, 10 + 10 key checks), hazmat interop both ways, 820 CAVP +
-   199 per-step Keccak checks; **48/48 mutants killed** (WP1 15, WP2 13,
-   WP3 18, P1 2 — 45 at v0.5.1; the three hardware-validation adversary
-   mutants were added on `hw/rig-validation`). All constant-time claims are
+   199 per-step Keccak checks; **55/55 mutants killed** (WP1 15, WP2 13,
+   WP3 18, P1 2, seed 7 — 45 at v0.5.1; the three hardware-validation
+   adversary mutants were added on `hw/rig-validation`, the seven `seed-*`
+   with v0.6.0). All constant-time claims are
    measured cycle pins, not assertions.
-5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
+5. **Sixteen SPEC/brief divergences** (P1 1–6, P2 7–14, v0.6.0 15–16: the
+   `LIB_MLKEM_POLY_BSS` fourth segment and the waived deprecation cycle for
+   it), tabulated in README.
+6. **v0.6.0 (ABI 3: additive exports, but a new required segment):
+   `mlkem_decaps_seed`** — Decaps from the 64 B
+   seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
+   the same inputs: 51,057,588). **+333 B code, +0 BSS** (329 B for the
+   entry and its two element helpers (`el_habs`, `el_su`), plus 4 B: the
+   `jsr kpke_keygen_core` in `kpke_keygen` and the `rts` closing
+   `kpke_keygen_core`): resident is now
+   **7,541 B, declared 7680** — the declaration now sits AT the 7,680 B
+   window's edge. Headroom in the window is **76–139 B**: 7,680 − 7,541 −
+   the CODE→RODATA gap, which is the consumer's, `(−code_end) mod $40` =
+   0–63 B. This probe link: gap 10 → 129 B; CODE at a page-aligned start:
+   gap 12 → 127 B. `make check-manifest` prints all three. The 7,714 B test
+   build is no longer covered. The v0.6.0 link also moves NTT / INTT /
+   basemul by +64 / +64 / +128 (RODATA page phase) and KeyGen by +1,548 in
+   total (+12 for the shared `kpke_keygen_core` call, plus 6 NTT × 64 and
+   9 basemul × 128 of that page phase); items 1–5 above are
+   v0.5.1's unless they say otherwise. 55 mutants (seven `seed-*`).
+   `make test-mlkem` runs `test_decaps_seed.py` after `test_mlkem.py`: the
+   seed entry jumps into `encrypt_body`, `kpke_decrypt` and `mlkem_decaps`
+   at labels whose entry contracts are written in `src/kem.s`.
+
+**The seed path is OVER budget.** A client that keeps only the 64 B seed pays
+KeyGen (to send `ek`) + `mlkem_decaps_seed` = 21,803,250 + 50,794,288 =
+**72,597,538 cycles**, above the roadmap's 40–70M, versus 51,057,588 for
+keygen + `mlkem_decaps` holding `dk`. What it saves is holding `dk` between
+KeyGen and Decaps (KeyGen still writes `dk` through `mlkem_arg_dk`, so it still
+needs a transient 2,400 B buffer); that costs about 21.5M cycles (21 s at
+1.023 MHz) per handshake.
 
 **The headline must not be softened:** Keccak is now inside the roadmap's
 150–350k band (3% under its top) only after a 26% cut, and it is still 58%
@@ -101,13 +137,16 @@ the total survives the 40–70M budget because that band was wide.
   assert only *fails* when the layout happens to straddle, so a green link
   proves nothing about the next link. The tables carry `.align 64` — which
   brings the next trap.
-- **ld65 silently drops a source `.align` the cfg does not permit.** A
-  segment's cfg entry needs `align = $40` (or larger) for a `.align 64` in
-  the source to take effect; without it ld65 warns (only if a source-level
-  align exists to check against) and proceeds. `LIB_MLKEM_RODATA` therefore
-  **requires `align = $40`** in every consumer cfg, and the `lderror` asserts
-  are what turn the dropped align into a failed link. The reverted-align
-  mutant pins that.
+- **ld65 drops a source `.align` the cfg does not permit.** A segment's cfg
+  entry needs `align = $40` (or larger) for a `.align 64` in the source to
+  take effect; without it ld65 only warns (and only if a source-level align
+  exists to check against) and proceeds. `LIB_MLKEM_RODATA` therefore
+  **requires `align = $40`** in every consumer cfg. The `lderror` asserts turn
+  the dropped align into a failed link whenever the layout breaks one
+  (`keccak_rc` 8-aligned, codec/CBD tables not straddling a page): most
+  layouts, not all, so a green link does not show the cfg is right, or that
+  the next layout will pass. The reverted-align mutant pins a straddling
+  layout.
 - **Any harness scratch address is a claim about the image size.** `test_sha3`
   hardcoded `MSG_BUF = $2000` as "well above the PRG image" when the image
   ended at ~$0E47; after WP3 `LIB_MLKEM_RODATA` spanned `$1FC0–$23C0`, the
@@ -150,9 +189,23 @@ has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
   is §1's) that this library was first to take; re-adding either would put it
   back on a migration path it deliberately skipped. The export surface is
   byte-identical with and without `-D LIB_NO_BARE_EXPORTS=1`.
-- `LIB_MLKEM_ABI_VERSION` moves only on a **breaking** export change. It went
-  1 → 2 at v0.4.0 for the bare-export removal; it did NOT move for v0.2.0
-  (additive) or v0.3.0 (implementation-only).
+- `LIB_MLKEM_ABI_VERSION` moves when a consumer conforming to the previously
+  documented contract can be broken (SPEC §1: a removed or renamed symbol, a
+  changed calling convention, "a changed memory model"; §7: "Whether the
+  counter moves turns on what the code does") — not only on export-list
+  changes. A changed memory model is also breaking under §7's first bullet, so
+  its "one-MINOR-release deprecation cycle" nominally applies; v0.6.0 did not
+  run it because no released consumer pins a c64-mlkem tag (contract
+  consumers.md lists none; c64-https wiring is P4). SPEC grants that
+  zero-consumer reasoning explicitly only for the bare exports (§1) and the
+  bare `LIB_PRECALC_*` triple (§8.4), so this is a divergence (README row 16).
+  §7 classes the change MAJOR, but pre-1.0 it ships on a MINOR bump (§1),
+  hence 0.6.0. `make check-version` pins the value
+  (`EXPECTED_ABI` in the Makefile) and the segment model. It went 1 → 2 at
+  v0.4.0 for the bare-export removal and 2 → 3 at v0.6.0: the export surface
+  was additive, but the new required
+  segment `LIB_MLKEM_POLY_BSS` breaks a v0.5.1 consumer cfg at link. It did NOT
+  move for v0.2.0 (additive) or v0.3.0 (implementation-only).
 - `src/lib_manifest.s` carries the §5 aggregates. Footprint equates are
   **safe-direction**: ≥ measured, rounded UP to the next 256-byte boundary.
   The basis is the **placed span** of the segments they cover (internal

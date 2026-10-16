@@ -192,7 +192,7 @@ KECCAK_OBJS = $(addprefix $(OBJ_DIR)/mlkem_, $(addsuffix .o,$(KECCAK_SRCS))) \
 # proves the archive links on its own.
 LIB_PROBE     = $(BUILD_DIR)/mlkem-lib.prg
 LIB_PROBE_MAP = $(BUILD_DIR)/mlkem-lib.map
-LIB_PROBE_PULL = -u mlkem_keygen -u mlkem_encaps -u mlkem_decaps -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
+LIB_PROBE_PULL = -u mlkem_keygen -u mlkem_encaps -u mlkem_decaps -u mlkem_decaps_seed -u LIB_MLKEM_RESIDENT_BYTES -u LIB_MLKEM_VERSION_MAJOR
 DRIVER_OBJS = $(addprefix $(TOBJ_DIR)/, $(addsuffix .o,$(DRIVER_SRCS)))
 
 # Probe link of the SHIPPED mlkem-keccak.a, for its own §5 figures (contract
@@ -215,9 +215,9 @@ ARCHIVE        = $(LIB_DIR)/mlkem.a
 ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
-        test-sampler test-sampler-full test-mlkem test-mlkem-full test-mutants \
+        test-sampler test-sampler-full test-mlkem test-mlkem-full test-decaps-seed test-decaps-seed-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
-        check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
+        check-manifest check-archives check-version check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
         check-deps check-deps-rebuild check-deps-selftest \
         vectors help rig rig-full rig-turbo
@@ -330,8 +330,20 @@ check-archives: lib lib-keccak
 	  done; \
 	done; \
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
-	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7424 3
+	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7680 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
+
+# LIB_MLKEM_ABI_VERSION as the build must ship it. It moves only per SPEC §7
+# ("a consumer conforming to the previously documented contract can be broken
+# by the change"; §1 counts a changed memory model), never by habit: 2 -> 3 at
+# v0.6.0 for the new required LIB_MLKEM_POLY_BSS segment. Change it here and in
+# src/lib_version.s together, deliberately.
+EXPECTED_ABI = 3
+
+# The four §1 equates in both archives against VERSION / EXPECTED_ABI, the
+# three-vs-four-segment link legs, and proof the check fires on a wrong ABI.
+check-version: $(PRG) lib lib-keccak
+	@$(TOOLS_DIR)/check_version.sh $(ARCHIVE) $(ARCHIVE_KECCAK) $(EXPECTED_ABI) "$(DRIVER_OBJS)" "$(LIB_PROBE_PULL)"
 
 # Repo-local configuration invalidation, both legs. Leg 1 alone is not a
 # test: a guard that has degraded to an unconditional rebuild passes it. Leg 2
@@ -479,18 +491,35 @@ test-sampler-full: $(PRG)
 # WP3 merge. --full runs every ACVP vector (~150 calls of 10-40M cycles).
 MLKEM_ARGS ?=
 
+# test-mlkem also runs the mlkem_decaps_seed suite: the seed entry jumps into
+# encrypt_body, kpke_decrypt and mlkem_decaps at labels (src/kem.s, "ENTRY
+# CONTRACT"), so an edit there must answer to both suites. test_mlkem.py runs
+# first; a mutant it kills never reaches the second command.
 test-mlkem: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py $(MLKEM_ARGS)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py $(DS_ARGS)
 
 test-mlkem-full: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_mlkem.py --full
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py --full
+
+# mlkem_decaps_seed (v0.6.0): Decaps from the 64 B seed d || z against ACVP
+# keyGen seeds, the ACVP decapsulation ciphertexts, the 6502's own
+# keygen -> decaps, hazmat from_seed_bytes, and the constant-time pin.
+DS_ARGS ?=
+
+test-decaps-seed: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py $(DS_ARGS)
+
+test-decaps-seed-full: $(PRG)
+	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/test_decaps_seed.py --full
 
 # Full suite: oracle self-test, the VICE differential trace, the KATs,
 # contract checks.
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-version check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -561,6 +590,7 @@ help:
 	@echo "make test-mutants mutation gate over tools/mutants/manifest.json"
 	@echo "make test-sampler WP2 samplers/codecs vs mlkem_ref.py (add -full to sweep)"
 	@echo "make test-mlkem   WP3 K-PKE/ML-KEM KATs + hazmat + CT decaps in VICE (add -full)"
+	@echo "make test-decaps-seed  mlkem_decaps_seed KATs + equivalence + hazmat + CT in VICE (add -full)"
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
@@ -573,6 +603,7 @@ help:
 	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
 	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
+	@echo "make check-version  the four §1 equates (exactly four exports, : abs) in both archives vs VERSION / EXPECTED_ABI; 3-segment cfg fails, 4-segment links; fires on a mutated member (ABI, PATCH, no : abs, extra constant or label export)"
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs; the rejected knobs fire"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"

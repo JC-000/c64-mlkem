@@ -23,11 +23,17 @@
 ;     mlkem_decaps   in dk, ct         out key           A = 0; implicit
 ;                    rejection yields J(z || c) silently. No §7.3 H(ek) check
 ;                    (the caller's, per FIPS 203).
+;     mlkem_decaps_seed  in seed = d || z (64 B), ct   out key   A = 0.
+;                    = mlkem_decaps(KeyGen(d, z).dk, ct), with no dk or ek
+;                    buffer: s_hat, t_hat and rho are regenerated from d and
+;                    H(ek) is absorbed from t_hat encoded one polynomial at a
+;                    time. Reads neither EK, DK nor Z.
 ;
 ; No alignment requirement on any wire buffer: every byte-string access is
 ; (zp),y with a 16-bit pointer. Polynomials live in page-aligned BSS below.
 ;
-; MEMORY PLAN — eight polynomials (4,096 B), never the matrix:
+; MEMORY PLAN — eight polynomials (4,096 B, alone in LIB_MLKEM_POLY_BSS so a
+; consumer can place them separately), never the matrix:
 ;     kem_pva[3]  s_hat (keygen) / y_hat (encrypt) / u_hat (decrypt)
 ;     kem_pvb[3]  e_hat -> t_hat (keygen) / t_hat (encrypt) / s_hat (decrypt)
 ;     kem_pt      one sampled A[i][j], then the basemul product; also e / mu
@@ -77,7 +83,7 @@
 .import mlkem_compress_1, mlkem_compress_4, mlkem_compress_10
 .import mlkem_decompress_1, mlkem_decompress_4, mlkem_decompress_10
 
-.export mlkem_keygen, mlkem_encaps, mlkem_decaps
+.export mlkem_keygen, mlkem_encaps, mlkem_decaps, mlkem_decaps_seed
 .export mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
 .export mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
 .export mlkem_status
@@ -121,7 +127,7 @@ IDX_OUT   = 26
 k_byte:         .byte KEM_K         ; the "|| k" byte of G(d || k)
 
 ; =============================================================================
-.segment "LIB_MLKEM_BSS"
+.segment "LIB_MLKEM_POLY_BSS"
 
 ; Page-aligned polynomials FIRST (ld65 aligns the whole fragment; odd bytes
 ; declared before an .align would still land after it AND push it a page).
@@ -130,9 +136,17 @@ kem_pva:        .res 3 * 512
 kem_pvb:        .res 3 * 512
 kem_pt:         .res 512
 kem_pacc:       .res 512
-.assert (kem_pva .mod 256) = 0, lderror, "kem_pva is not page-aligned: LIB_MLKEM_BSS needs align = $100"
+.assert (kem_pva .mod 256) = 0, lderror, "kem_pva is not page-aligned: LIB_MLKEM_POLY_BSS needs align = $100"
+.assert kem_pacc + 512 - kem_pva = 4096, error, "LIB_MLKEM_POLY_BSS must be exactly the eight polynomials"
 
+.segment "LIB_MLKEM_BSS"
+
+; kem_buf is page-aligned so its (zp),y walks cross a page at a fixed offset
+; in every link (before the split it was page-aligned by accident, sitting
+; right after the polynomials). Costs <= 255 B of fill; 40 B in the probe link.
+.align 256
 kem_buf:        .res 320            ; PRF output (128) / one encoded chunk in compare mode (320)
+.assert (kem_buf .mod 256) = 0, lderror, "kem_buf is not page-aligned: LIB_MLKEM_BSS needs align = $100"
 kem_hb:         .res 4 * 32         ; hash scratch: 4 x 32 B (see each primitive)
 
 ; The parameter block. Contiguous, offsets asserted.
@@ -723,6 +737,21 @@ have:
 ; Leaves t_hat in kem_pvb and rho in kem_hb[0..32) for mlkem_keygen.
 ; =============================================================================
 .proc kpke_keygen
+        jsr kpke_keygen_core
+        PTRSET IDX_RUN, IDX_EK, 0
+        VEC >kem_pvb, el_enc12      ; ek = ByteEncode12(t_hat) ...
+        SRCI kem_hb
+        DST IDX_EK, EK_T_BYTES
+        jsr copy32                  ;      || rho
+        PTRSET IDX_RUN, IDX_DK, 0
+        VEC >kem_pva, el_enc12      ; dk_pke = ByteEncode12(s_hat)
+        lda #0
+        rts
+.endproc
+
+; kpke_keygen_core: SEED = d -> s_hat in kem_pva, t_hat in kem_pvb,
+; rho in kem_hb[0..32). Writes no caller buffer (mlkem_decaps_seed).
+.proc kpke_keygen_core
         jsr mlkem_sha3_512_init
         SRC IDX_SEED, 0
         ABSORB 32
@@ -738,14 +767,6 @@ have:
         VEC >kem_pva, el_sample     ; s_hat, N = 0..2
         VEC >kem_pvb, el_sample     ; e_hat, N = 3..5
         VEC >kem_pvb, el_trow       ; t_hat = A o s_hat + e_hat
-        PTRSET IDX_RUN, IDX_EK, 0
-        VEC >kem_pvb, el_enc12      ; ek = ByteEncode12(t_hat) ...
-        SRCI kem_hb
-        DST IDX_EK, EK_T_BYTES
-        jsr copy32                  ;      || rho
-        PTRSET IDX_RUN, IDX_DK, 0
-        VEC >kem_pva, el_enc12      ; dk_pke = ByteEncode12(s_hat)
-        lda #0
         rts
 .endproc
 
@@ -760,6 +781,13 @@ have:
 .endproc                            ; falls through
 .proc encrypt_body
         PTRSET IDX_RHO, IDX_EKP, EK_T_BYTES
+; ENTRY CONTRACT rho_set (mlkem_decaps_seed jsr's here, skipping the line
+; above): t_hat in kem_pvb; kem_ptrs[RHO] -> rho, [M] -> m, [PSEED] -> r,
+; [OUT] -> c; kp_cmp and cmp_acc set by the caller. Nothing here may come
+; to depend on EKP — the seed entry never sets it. Edits between here and
+; the end of encrypt_body are covered by test_mlkem AND test_decaps_seed
+; (both run under `make test-mlkem`).
+rho_set:
         lda #0
         sta kp_nonce
         VEC >kem_pva, el_sample     ; y_hat, N = 0..2
@@ -805,6 +833,12 @@ have:
         PTRSET IDX_IN, IDX_DK, 0
         VEC >kem_pvb, el_dec12      ; s_hat
         jsr dot_ab                  ; pacc = INTT(s_hat . u_hat)
+; ENTRY CONTRACT w_sub (mlkem_decaps_seed jsr's here): v = Decompress4(c2)
+; in kem_pt, INTT(s^T u) in kem_pacc, kem_ptrs[MOUT] -> the 32 B m'
+; destination. Clobbers kp_cmp (0). Returns via enc_poly's rts. Nothing
+; after this label may read kem_pva/kem_pvb or IDX_DK: the seed entry keeps
+; t_hat live in kem_pvb across this call.
+w_sub:
         lda #>kem_pacc
         jsr set_src
         lda #>kem_pt
@@ -952,7 +986,11 @@ ok:
         lda #0
         sta cmp_acc
         jsr kpke_encrypt            ; cmp_acc = OR over c ^ c'
-
+; ENTRY CONTRACT select (mlkem_decaps_seed jmp's here): K' in kem_hb[64..96),
+; K_bar in kem_hb[96..128), cmp_acc = OR over c ^ c' (final),
+; kem_ptrs[KEY] -> K. Writes K, clears mlkem_status, returns A = 0 to the
+; public caller. Both entries depend on everything below.
+select:
         ; mask = $FF iff cmp_acc = 0 (c = c'), branch-free:
         ; (x | -x) has bit 7 set iff x != 0; shift it into carry; 0 - borrow.
         lda cmp_acc
@@ -977,6 +1015,109 @@ ok:
         lda #0
         sta mlkem_status
         rts
+.endproc
+
+; =============================================================================
+; PUBLIC: ML-KEM-768 Decaps from the KeyGen seed. SEED = d || z (64 B),
+; CT = c -> (KEY) = mlkem_decaps(KeyGen(d, z).dk, c). A = 0 always.
+;
+; No dk, no ek: K-PKE.KeyGen re-runs from d and leaves s_hat (pva), t_hat
+; (pvb) and rho (hb0). Then, in the eight existing polynomials and kem_hb:
+;   h   = H(ek)  t_hat[i] encoded into kem_pt one polynomial at a time and
+;                absorbed from there, then rho                     -> hb2
+;   m'  = Decrypt with s_hat kept in NTT form: each u_i is decoded into
+;                kem_pt and multiplied straight into pacc, so pvb (t_hat)
+;                survives for the re-encryption   -> hb1 (sigma is dead)
+;   K', r' = G(m' || h), one 64-byte absorb from hb1               -> hb2, hb3
+;   c' compared against c by encrypt_body (t_hat in pvb, RHO = hb0)
+;   K_bar = J(z || c), after the compare (r' is dead)              -> hb3
+; and the same branch-free select as mlkem_decaps (K' hb2, K_bar hb3).
+;
+; Code sharing: kpke_keygen was split into kpke_keygen_core + its ek/dk
+; tail (one jsr/rts added to KeyGen, +12 cycles); encrypt_body,
+; kpke_decrypt and mlkem_decaps gained only labels (rho_set, w_sub,
+; select — no instruction changed), each with its entry contract written
+; at the label.
+; =============================================================================
+.proc mlkem_decaps_seed
+        jsr kpke_keygen_core        ; s_hat, t_hat, hb0 = rho
+        jsr mlkem_sha3_256_init
+        VEC >kem_pvb, el_habs       ; ByteEncode12(t_hat) ...
+        SRCI kem_hb
+        ABSORB 32                   ;   || rho
+        DSTI kem_hb + 64
+        SQUEEZE 32                  ; hb2 = h = H(ek)
+
+        lda #>kem_pacc
+        jsr zero_poly
+        PTRSET IDX_IN, IDX_CT, 0
+        VEC >kem_pva, el_su         ; pacc = sum s_hat[i] o u_hat[i]
+        lda #>kem_pacc
+        jsr set_dst
+        jsr mlkem_poly_intt
+        lda #4
+        sta enc_d
+        lda #>kem_pt
+        jsr dec_poly                ; IN = c2
+        lda #>kem_pt
+        jsr set_both
+        jsr mlkem_decompress_4      ; v in kem_pt
+        PTRSETI IDX_MOUT, kem_hb + 32
+        jsr kpke_decrypt::w_sub     ; hb1 = m'
+
+        jsr mlkem_sha3_512_init
+        SRCI kem_hb + 32
+        ABSORB 64                   ; m' || h
+        DSTI kem_hb + 64
+        SQUEEZE 32                  ; hb2 = K'
+        DSTI kem_hb + 96
+        SQUEEZE 32                  ; hb3 = r'
+
+        PTRSETI IDX_RHO, kem_hb
+        PTRSETI IDX_M, kem_hb + 32
+        PTRSETI IDX_PSEED, kem_hb + 96
+        PTRSET IDX_OUT, IDX_CT, 0
+        lda #1
+        sta kp_cmp
+        lda #0
+        sta cmp_acc
+        jsr encrypt_body::rho_set   ; cmp_acc = OR over c ^ c'
+
+        jsr mlkem_shake256_init
+        SRC IDX_SEED, 32
+        ABSORB 32                   ; z
+        SRC IDX_CT, 0
+        ABSORB CT_BYTES             ; || c
+        DSTI kem_hb + 96
+        SQUEEZE 32                  ; hb3 = K_bar = J(z || c)
+        jmp mlkem_decaps::select
+.endproc
+
+; vec_each element: absorb ByteEncode12(t_hat[i]) via kem_pt
+.proc el_habs
+        lda kp_pi
+        jsr set_src
+        DSTI kem_pt
+        jsr mlkem_byte_encode_12
+        SRCI kem_pt
+        lda #<384
+        ldy #>384
+        jmp absorb_len
+.endproc
+
+; vec_each element: pacc += s_hat[i] o NTT(Decompress10(ByteDecode10((IN))))
+.proc el_su
+        lda kp_pi
+        pha
+        lda #>kem_pt
+        sta kp_pi                   ; vec_each recomputes kp_pi every element
+        jsr el_dec10                ; kem_pt = u_hat[i]
+        pla
+        jsr set_src                 ; s_hat[i]
+        lda #>kem_pt
+        jsr set_dst
+        jsr mlkem_poly_basemul
+        jmp pacc_add_pt
 .endproc
 
 ; =============================================================================
