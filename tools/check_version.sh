@@ -25,9 +25,11 @@ cd "$(dirname "$0")/.."
 a=$1; ak=$2; want_abi=$3; drivers=$4; pulls=$5
 member=mlkem_lib_version.o
 [ -f "$a" ] && [ -f "$ak" ] || { echo "FAIL: archive missing"; exit 2; }
-# Strip only a trailing CR and leading/trailing blanks; internal whitespace
-# is an error, not something to squeeze out.
-ver=$(head -n 1 VERSION | tr -d '\r' | sed 's/^[ 	]*//; s/[ 	]*$//')
+# Exactly one non-empty line; strip only leading blanks and trailing blanks /
+# CR. Interior whitespace or CR is an error, not something to squeeze out.
+nlines=$(awk '{ gsub(/[ \t\r]/, ""); if (length($0)) n++ } END { print n + 0 }' VERSION)
+[ "$nlines" -eq 1 ] || { echo "FAIL: VERSION must hold exactly one non-empty line (has $nlines)"; exit 2; }
+ver=$(awk 'length($0) { gsub(/\r$/, ""); print; exit }' VERSION | sed 's/^[ 	]*//; s/[ 	]*$//')
 case $ver in
     [0-9]*.[0-9]*.[0-9]*) ;;
     *) echo "FAIL: VERSION is not MAJOR.MINOR.PATCH: '$ver'"; exit 2 ;;
@@ -133,7 +135,18 @@ elif equates "$tmp/mut/m.a" && equates "$tmp/mut/k.a"; then
 else
     echo "FAIL: self-test positive control: unmutated archive copies do not pass"; fail=1
 fi
+# expected_msg <name>: the FAIL text the check must produce for that mutation.
+expected_msg() {
+    case $1 in
+    ABI)          echo "LIB_MLKEM_ABI_VERSION = 2" ;;
+    PATCH)        echo "LIB_MLKEM_VERSION_PATCH = 9" ;;
+    NO-ABS)       echo "not exported as absolute" ;;
+    EXTRA-EXPORT) echo "exports 5 symbols" ;;
+    LABEL-EXPORT) echo "exports 5 symbols" ;;
+    esac
+}
 for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
+    rm -f "$tmp/mut/$member" "$tmp/mut/lib_version.s"
     mutate "$name" < src/lib_version.s > "$tmp/mut/lib_version.s"
     if cmp -s src/lib_version.s "$tmp/mut/lib_version.s"; then
         echo "FAIL: self-test $name mutation changed nothing (src/lib_version.s shape moved)"; fail=1; continue
@@ -145,10 +158,13 @@ for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
     if ! (cd "$tmp/mut" && ar65 r m.a "$member" && ar65 r k.a "$member"); then
         echo "FAIL: self-test $name: ar65 could not replace the member"; fail=1; continue
     fi
-    if equates "$tmp/mut/m.a" >/dev/null && equates "$tmp/mut/k.a" >/dev/null; then
+    want=$(expected_msg "$name")
+    if out=$(equates "$tmp/mut/m.a" 2>&1 && equates "$tmp/mut/k.a" 2>&1); then
         echo "FAIL: self-test: archives rebuilt with a mutated $name PASSED the check"; fail=1
+    elif printf '%s\n' "$out" | grep -qF "$want"; then
+        echo "  ok  self-test: a mutated $name in lib_version.o is caught ('$want')"
     else
-        echo "  ok  self-test: a mutated $name in lib_version.o is caught"
+        echo "FAIL: self-test $name: the check failed, but not with '$want':"; printf '%s\n' "$out" | head -3; fail=1
     fi
 done
 

@@ -22,7 +22,7 @@ built on; **Phase 2 is everything else** in FIPS 203:
 | Phase | Scope | State |
 |---|---|---|
 | **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
-| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 48/48 mutants killed at P2 (55/55 with v0.6.0's 7 seed mutants); measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
+| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 45/45 mutants killed at P2 (55/55 at v0.6.0: +3 from the hardware validation, +7 `seed-*`); measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
 P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
@@ -366,7 +366,7 @@ from the brief.
 | # | Brief / spec says | What shipped | Why |
 |---|---|---|---|
 | 7 | HANDOFF-P2 WP4: "`mlkem-kem.a` alongside the existing archives" | **no `lib-kem` target.** `mlkem.a` *is* the ML-KEM archive | K-PKE/ML-KEM cannot be separated from the sponge it hashes with; a third archive would be a byte-identical second name for `mlkem.a`. `docs/contract-p2-alignment.md` does not call for it. |
-| 8 | §4: `LIB_MLKEM_RODATA` had no alignment requirement | **`align = $40` is now REQUIRED** on `LIB_MLKEM_RODATA` | `src/codec.s` places three secret-indexed tables (42/42/64 B) at 64 B boundaries so no `abs,x` read crosses a page (cost would depend on the secret). ld65 silently drops a source `.align` the cfg does not permit; the sources carry `lderror` asserts, so a cfg that omits it **fails the link**. Mutant `wp2-rodata-align-reverted` pins that. |
+| 8 | §4: `LIB_MLKEM_RODATA` had no alignment requirement | **`align = $40` is now REQUIRED** on `LIB_MLKEM_RODATA` | `src/codec.s` places three secret-indexed tables (42/42/64 B) at 64 B boundaries so no `abs,x` read crosses a page (cost would depend on the secret). Dropping it makes ld65 warn; the link fails whenever the layout breaks one of the sources' asserts (`keccak_rc` 8-aligned, codec/CBD tables not straddling a page), which is most layouts but not all: keep the align. Mutant `wp2-rodata-align-reverted` pins a straddling layout. |
 | 9 | §8.1: consumer-chosen `LIB_SHARED_SQTAB_BASE` | standalone default **`$9000`**; `sqtab_base.inc` shipped next to `mlkem.inc`; consumer mirrors the image guard | Page-aligned, clear of every sibling default (`$7800`, `$8000/$8400`, `$9C00`, `$B800/$BC00`) and of the test harness's `$C000–$CFFF`; RAM under every `$01` state. The multiply bakes the page byte into its `abs,x` sites, so a stale object is a wrong address — `make check-staleness` covers the knob and `make check-sqtab-guard` proves the guard fires. |
 | 10 | FIPS 203 §7.2: `ByteDecode12` output "must be < q" | **`mlkem_byte_decode_12` is a raw pass-through**: a field ≥ q is stored unreduced (3329..4095) | The modulus check on an encapsulation key is the caller's per §7.2, and this makes it *possible*: a decoder that reduced mod q would hide the violation. `mlkem_encaps` performs the explicit per-coefficient `< q` compare over all 768 fields (public data; may exit early) and returns `A = 1` with nothing written. ACVP `encapsulationKeyCheck` 10/10. |
 | 11 | FIPS 203 §7.3: decaps input check `H(ek) == dk[2336..2368]` | **not performed** by `mlkem_decaps` | §7.3 assigns it to the caller (the C64 API takes pointers, not lengths, either). A dk with a wrong `H(ek)` field is processed mechanically by Alg. 18 with the *stored* h; the result is pinned to a model that mirrors that (test D2), so the behaviour is deterministic and documented. ACVP `decapsulationKeyCheck` 10/10 against that model. |
@@ -717,9 +717,10 @@ the seed pays KeyGen (to produce `ek`) plus `mlkem_decaps_seed`:
 segment. Add `LIB_MLKEM_POLY_BSS: load = MAIN, type = bss, define = yes, align
 = $100;` to your cfg (any area, e.g. RAM under I/O at `$D000`; it must come
 after every file-emitting segment of its area, and that area needs its own
-sqtab guard line and `define = yes`). A v0.5.1 cfg that does not
-fails to link with `Missing memory area assignment for segment
-'LIB_MLKEM_POLY_BSS'`, which is why `LIB_MLKEM_ABI_VERSION` moved 2 → 3.
+sqtab guard line, and its MEMORY entry needs `define = yes`). A v0.5.1 cfg
+without that line fails to link with `Missing memory area assignment for
+segment 'LIB_MLKEM_POLY_BSS'`, which is why `LIB_MLKEM_ABI_VERSION` moved
+2 → 3.
 A consumer of `mlkem-keccak.a` alone omits the line or marks it
 `optional = yes`. One ABI counter covers both archives, so a `mlkem-keccak.a`
 consumer that gates `LIB_MLKEM_ABI_VERSION = 2` must move its gate to 3

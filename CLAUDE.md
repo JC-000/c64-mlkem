@@ -137,13 +137,15 @@ the total survives the 40–70M budget because that band was wide.
   assert only *fails* when the layout happens to straddle, so a green link
   proves nothing about the next link. The tables carry `.align 64` — which
   brings the next trap.
-- **ld65 silently drops a source `.align` the cfg does not permit.** A
-  segment's cfg entry needs `align = $40` (or larger) for a `.align 64` in
-  the source to take effect; without it ld65 warns (only if a source-level
-  align exists to check against) and proceeds. `LIB_MLKEM_RODATA` therefore
-  **requires `align = $40`** in every consumer cfg, and the `lderror` asserts
-  are what turn the dropped align into a failed link. The reverted-align
-  mutant pins that.
+- **ld65 drops a source `.align` the cfg does not permit.** A segment's cfg
+  entry needs `align = $40` (or larger) for a `.align 64` in the source to
+  take effect; without it ld65 only warns (and only if a source-level align
+  exists to check against) and proceeds. `LIB_MLKEM_RODATA` therefore
+  **requires `align = $40`** in every consumer cfg. The `lderror` asserts turn
+  the dropped align into a failed link whenever the layout breaks one
+  (`keccak_rc` 8-aligned, codec/CBD tables not straddling a page): most
+  layouts, not all, so a green link proves nothing. The reverted-align mutant
+  pins a straddling layout.
 - **Any harness scratch address is a claim about the image size.** `test_sha3`
   hardcoded `MSG_BUF = $2000` as "well above the PRG image" when the image
   ended at ~$0E47; after WP3 `LIB_MLKEM_RODATA` spanned `$1FC0–$23C0`, the
