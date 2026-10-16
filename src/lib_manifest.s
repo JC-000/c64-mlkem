@@ -87,7 +87,8 @@ LIB_MLKEM_RESIDENT_BYTES = 7680
 ; requires it. Divergence recorded in README.md.) Still 0 in P2: the two
 ; init routines (mul_tables_init 84 B, mlkem_arith_init) sit in
 ; LIB_MLKEM_CODE — splitting them into a reclaimable init segment would save
-; < 200 B and is not worth a fourth consumer segment.
+; < 200 B and is not worth a further consumer segment (v0.6.0 already adds
+; LIB_MLKEM_POLY_BSS as a fourth, for the polynomials, not for this).
 LIB_MLKEM_COLD_BYTES = 0
 
 ; Total bytes of ZP slots claimed — sum of every .exportzp slot in

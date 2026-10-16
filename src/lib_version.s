@@ -23,7 +23,7 @@
 ;
 ; LIB_MLKEM_ABI_VERSION is a monotonic generation counter for the exported
 ; surface (§1, v0.7.5 semantics): starts at 1, increments on any breaking
-; export change, DELIBERATELY INDEPENDENT of MAJOR. §7 permits breaking
+; export change or changed memory model, DELIBERATELY INDEPENDENT of MAJOR. §7 permits breaking
 ; changes on MINOR bumps while pre-1.0, so MAJOR stays 0 and carries no
 ; signal; a consumer gating on MINOR would never fire for exactly the changes
 ; the gate exists to catch.
@@ -49,16 +49,26 @@
 ;              surface is byte-identical (od65 on both archives against the
 ;              v0.4.0 header). Nothing removed or renamed, no calling
 ;              convention touched: the counter does not move.
-;   2  v0.6.0  ADDITIVE only — mlkem_decaps_seed (Decaps from the 64 B
-;              KeyGen seed d || z, no dk/ek buffer) joined the surface; every
-;              existing export and calling convention is unchanged, so the
-;              counter does not move.
+;   3  v0.6.0  The EXPORT surface is additive (one new export,
+;              mlkem_decaps_seed: Decaps from the 64 B KeyGen seed d || z, no
+;              dk/ek buffer; every existing export and calling convention is
+;              unchanged). But the eight K-PKE polynomials moved out of
+;              LIB_MLKEM_BSS into a new required segment, LIB_MLKEM_POLY_BSS
+;              (a changed memory model). A consumer cfg that conformed to
+;              v0.5.1 and declares only CODE/RODATA/BSS now fails to link
+;              ("Missing memory area assignment for segment
+;              'LIB_MLKEM_POLY_BSS'"). SPEC §1 (line 39) counts "a changed
+;              memory model" and §7 (line 251) moves the counter when a
+;              consumer conforming to the previously documented contract can
+;              be broken by the change, so the counter moves 2 -> 3. Fix in
+;              the consumer: add a LIB_MLKEM_POLY_BSS line (type = bss,
+;              align = $100) to its cfg; see cfg/mlkem-example.cfg.
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0
 LIB_MLKEM_VERSION_MINOR = 6
 LIB_MLKEM_VERSION_PATCH = 0
-LIB_MLKEM_ABI_VERSION   = 2
+LIB_MLKEM_ABI_VERSION   = 3
 
 ; `: abs` is required, not decorative. These values fit in a byte, so ca65
 ; infers ZEROPAGE without the hint, while a consumer's .import defaults to

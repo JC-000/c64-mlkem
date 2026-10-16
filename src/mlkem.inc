@@ -38,6 +38,8 @@
 ; VERSION GATE (contract §1) — .assert/lderror, never .if/.error:
 ;     .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
 ;     .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 1), lderror, "needs c64-mlkem v0.1+"
+;     (mlkem_decaps_seed needs MINOR >= 6, and LIB_MLKEM_ABI_VERSION >= 3 for
+;     the LIB_MLKEM_POLY_BSS segment: .import LIB_MLKEM_ABI_VERSION)
 ;
 ; FOOTPRINT GATE (contract §5):
 ;     .import LIB_MLKEM_RESIDENT_BYTES, LIB_MLKEM_COLD_BYTES
@@ -54,7 +56,7 @@ MLKEM_INC_INCLUDED = 1
 
 ; --- Keccak-f[1600] permutation -------------------------------------------
 ; keccak_f1600  in-place 24-round permutation of keccak_state.
-;               456,605 cycles (measured; `make bench`).
+;               339,688 cycles since v0.5.1 (measured; `make bench`).
 ;               Clobbers A/X/Y and the mlkem_zp_tmp / mlkem_zp_len slots.
 ; keccak_clear  zero all 200 state bytes.
 .import keccak_f1600, keccak_clear
@@ -210,8 +212,11 @@ MLKEM_INC_INCLUDED = 1
 ;
 ; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
 ; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
-; BSS: 4,632 B in this TU (eight page-aligned polynomials, 320 B chunk
-; buffer, 128 B hash scratch, the block). The matrix A is never stored.
+; BSS in this TU: 4,096 B in LIB_MLKEM_POLY_BSS (the eight page-aligned
+; polynomials) and 497 B in LIB_MLKEM_BSS (320 B chunk buffer, 128 B hash
+; scratch, the block; before alignment fill). The whole library's
+; LIB_MLKEM_BSS is 2,545 B placed in the standard probe link.
+; The matrix A is never stored.
 .import mlkem_keygen, mlkem_encaps, mlkem_decaps, mlkem_decaps_seed
 .import mlkem_arg_ek, mlkem_arg_dk, mlkem_arg_ct
 .import mlkem_arg_key, mlkem_arg_seed, mlkem_arg_z
