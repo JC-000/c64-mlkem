@@ -24,7 +24,7 @@
 ; LIB_MLKEM_ABI_VERSION is a monotonic generation counter for the exported
 ; surface (§1, v0.7.5 semantics): starts at 1, increments on any breaking
 ; export change or changed memory model, DELIBERATELY INDEPENDENT of MAJOR.
-; §7 permits breaking changes on MINOR bumps while pre-1.0, so MAJOR stays 0
+; §1 permits breaking changes on MINOR bumps while pre-1.0, so MAJOR stays 0
 ; and carries no signal; a consumer gating on MINOR would never fire for
 ; exactly the changes the gate exists to catch.
 ;
@@ -70,11 +70,14 @@
 ;              released consumer pins a c64-mlkem tag (the contract's
 ;              consumers.md lists none; c64-https wiring is P4). That is the
 ;              zero-consumer reasoning SPEC grants explicitly only for the
-;              bare exports (§1), applied here on this repo's own judgement:
-;              a divergence (README row 16). Fix in the consumer: add a
-;              LIB_MLKEM_POLY_BSS line (type = bss, align = $100) to its
-;              cfg; see cfg/mlkem-example.cfg. Consumers gate by equality on
-;              the generation (.assert LIB_MLKEM_ABI_VERSION = 3, lderror).
+;              bare exports (§1) and the bare LIB_PRECALC_* triple (§8.4),
+;              applied here on this repo's own judgement: a divergence
+;              (README row 16). §7's first bullet classes the change MAJOR,
+;              but pre-1.0 it ships on a MINOR bump (§1), hence 0.6.0.
+;              Fix in the consumer: add a LIB_MLKEM_POLY_BSS line (type =
+;              bss, align = $100) to its cfg; see cfg/mlkem-example.cfg.
+;              Consumers gate by equality on the generation (.assert
+;              LIB_MLKEM_ABI_VERSION = 3, lderror).
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0

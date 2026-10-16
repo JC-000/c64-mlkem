@@ -19,7 +19,9 @@
 ;     LIB_MLKEM_RODATA    read-only data: Keccak round constants, NTT zetas
 ;                         and constants, CBD and compress tables (897 B).
 ;                         REQUIRES align = $40 (secret-indexed tables sit at
-;                         64 B boundaries; a cfg that drops it fails the link)
+;                         64 B boundaries; a cfg that drops it fails the link
+;                         whenever a table would then straddle a page, and
+;                         otherwise only warns)
 ;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
 ;                         parameter block (2,545 B incl. alignment fill in
 ;                         the probe link; the fill follows archive member
@@ -143,13 +145,16 @@ MLKEM_INC_INCLUDED = 1
 ;                       LIB_MLKEM_BSS. Reads nothing else. Every routine above
 ;                       reads them, so a missing call is a wrong answer, not
 ;                       a crash.
-; Mirror the library's image guard in your own link: the linked image must
-; end at or below LIB_SHARED_SQTAB_BASE (sqtab_base.inc ships next
-; to this header and carries the standalone default; a -D on your command
-; line overrides it — never define a second default yourself):
+; Mirror the library's image guard in your own link: no MEMORY area may
+; overlap the 1,024 B window at LIB_SHARED_SQTAB_BASE (sqtab_base.inc ships
+; next to this header and carries the standalone default; a -D on your command
+; line overrides it — never define a second default yourself). One assert per
+; area of the link, file-emitting or not, each area with `define = yes`; an
+; area wholly above the window (LIB_MLKEM_POLY_BSS at $D000) passes. See
+; cfg/mlkem-example.cfg for the reasoning. For an area X, on one line:
 ;   .include "sqtab_base.inc"
-;   .import __<AREA>_LAST__
-;   .assert __<AREA>_LAST__ <= LIB_SHARED_SQTAB_BASE, lderror, "image overruns sqtab"
+;   .import __X_START__, __X_LAST__
+;   .assert (__X_LAST__ <= LIB_SHARED_SQTAB_BASE) .or (__X_START__ >= LIB_SHARED_SQTAB_BASE + $0400), lderror, "area X overlaps the sqtab window"
 .import mlkem_poly_ntt, mlkem_poly_intt, mlkem_poly_basemul
 .import mlkem_poly_add, mlkem_poly_sub, mlkem_poly_reduce
 .import mlkem_arith_init
