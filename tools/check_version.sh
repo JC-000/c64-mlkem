@@ -143,6 +143,7 @@ expected_msg() {
     NO-ABS)       echo "not exported as absolute" ;;
     EXTRA-EXPORT) echo "exports 5 symbols" ;;
     LABEL-EXPORT) echo "exports 5 symbols" ;;
+    *)            echo "" ;;
     esac
 }
 for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
@@ -159,6 +160,7 @@ for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
         echo "FAIL: self-test $name: ar65 could not replace the member"; fail=1; continue
     fi
     want=$(expected_msg "$name")
+    [ -n "$want" ] || { echo "FAIL: self-test $name has no expected message"; fail=1; continue; }
     if out=$(equates "$tmp/mut/m.a" 2>&1 && equates "$tmp/mut/k.a" 2>&1); then
         echo "FAIL: self-test: archives rebuilt with a mutated $name PASSED the check"; fail=1
     elif printf '%s\n' "$out" | grep -qF "$want"; then

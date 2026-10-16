@@ -144,8 +144,9 @@ the total survives the 40–70M budget because that band was wide.
   **requires `align = $40`** in every consumer cfg. The `lderror` asserts turn
   the dropped align into a failed link whenever the layout breaks one
   (`keccak_rc` 8-aligned, codec/CBD tables not straddling a page): most
-  layouts, not all, so a green link proves nothing. The reverted-align mutant
-  pins a straddling layout.
+  layouts, not all, so a green link does not show the cfg is right, or that
+  the next layout will pass. The reverted-align mutant pins a straddling
+  layout.
 - **Any harness scratch address is a claim about the image size.** `test_sha3`
   hardcoded `MSG_BUF = $2000` as "well above the PRG image" when the image
   ended at ~$0E47; after WP3 `LIB_MLKEM_RODATA` spanned `$1FC0–$23C0`, the
