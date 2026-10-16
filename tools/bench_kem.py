@@ -319,6 +319,13 @@ def main():
           f"NTT/INTT/basemul {o_ntt}/{o_intt}/{o_bm} = {ac:,} ({100.0 * ac / ds:.1f}%), rest {ds - n_perm * kf - ac:,}")
     print(f"  keygen + decaps on the same seed and c: {kg_c:,} + {de_same:,} = {kg_c + de_same:,}; "
           f"decaps_seed is {ds - kg_c - de_same:+,} against it")
+    # The handshake cost of a client that keeps only the seed: it still runs
+    # KeyGen to send ek. Computed from this run's measurements, same budget.
+    hs = kg_c + ds
+    hs_where = "INSIDE" if lo <= hs <= hi else "OUTSIDE"
+    print(f"  keygen + decaps_seed = {kg_c:,} + {ds:,} = {hs:,} cycles "
+          f"({hs / 1_022_727:.1f} s at 1.023 MHz): {hs_where} the {lo // 1_000_000}-{hi // 1_000_000}M budget, "
+          f"{hs - (kg_c + de_same):+,} against keygen + decaps holding dk")
     return 0
 
 
