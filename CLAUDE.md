@@ -9,11 +9,12 @@ user wants work run, read the latest SESSION HANDOFF at the end of
 
 P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
 landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
-(`make rig`). No changes to `c64-https` (consumer
+(`make rig`). v0.6.0 adds `mlkem_decaps_seed` and the `LIB_MLKEM_POLY_BSS`
+segment (ABI 3; hardware validation of the new entry is still open). No changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
 
-## The numbers — v0.5.1 (P3 pass), with v0.6.0's changes in item 6
+## The numbers — v0.5.1 (P3 pass); v0.6.0 supersedes items 2–4 where noted (item 6)
 
 1. **Keccak-f[1600] = 339,688 cycles** (14,154/round), **link-invariant**
    since v0.5.1 (P1: 456,605, and it moved with the rodata layout; 600,771
@@ -45,10 +46,10 @@ below). No ML-DSA ever. No REU anywhere.
    adversary mutants were added on `hw/rig-validation`, the seven `seed-*`
    with v0.6.0). All constant-time claims are
    measured cycle pins, not assertions.
-5. **Fourteen SPEC/brief divergences** (P1 1–6, P2 7–14), tabulated in README.
-6. **v0.6.0 (additive, ABI 2): `mlkem_decaps_seed`** — Decaps from the 64 B
+5. **Fifteen SPEC/brief divergences** (P1 1–6, P2 7–15; 15 is v0.6.0's `LIB_MLKEM_POLY_BSS` fourth segment), tabulated in README.
+6. **v0.6.0 (ABI 3: additive exports, but a new required segment): `mlkem_decaps_seed`** — Decaps from the 64 B
    seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
-   the same inputs: 51,057,588). **+333 B code, +0 BSS**: resident is now
+   the same inputs: 51,057,588). **+333 B code (329 B the entry, 4 B the `jsr`/`rts` `kpke_keygen` gained when split), +0 BSS**: resident is now
    **7,541 B, declared 7680** — the declaration now sits AT the 7,680 B
    window's edge. Headroom in the window is **76–139 B**: 7,680 − 7,541 −
    the CODE→RODATA gap, which is the consumer's, `(−code_end) mod $40` =
@@ -60,6 +61,12 @@ below). No ML-DSA ever. No REU anywhere.
    `make test-mlkem` runs `test_decaps_seed.py` after `test_mlkem.py`: the
    seed entry jumps into `encrypt_body`, `kpke_decrypt` and `mlkem_decaps`
    at labels whose entry contracts are written in `src/kem.s`.
+
+**The seed path is OVER budget.** A client that keeps only the 64 B seed pays
+KeyGen (to send `ek`) + `mlkem_decaps_seed` = 21,803,250 + 50,794,288 =
+**72,597,538 cycles**, above the roadmap's 40–70M, versus 51,057,588 for
+keygen + `mlkem_decaps` holding `dk`. The 2,400 B of `dk` it saves costs about
+21.5M cycles per handshake.
 
 **The headline must not be softened:** Keccak is now inside the roadmap's
 150–350k band (3% under its top) only after a 26% cut, and it is still 58%
@@ -168,9 +175,13 @@ has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
   is §1's) that this library was first to take; re-adding either would put it
   back on a migration path it deliberately skipped. The export surface is
   byte-identical with and without `-D LIB_NO_BARE_EXPORTS=1`.
-- `LIB_MLKEM_ABI_VERSION` moves only on a **breaking** export change. It went
-  1 → 2 at v0.4.0 for the bare-export removal; it did NOT move for v0.2.0
-  (additive) or v0.3.0 (implementation-only).
+- `LIB_MLKEM_ABI_VERSION` moves when a consumer conforming to the previously
+  documented contract can be broken (SPEC §1 line 39: removed/renamed symbol,
+  changed calling convention, **changed memory model**; §7 line 251) — not only
+  on export-list changes. It went 1 → 2 at v0.4.0 for the bare-export removal
+  and 2 → 3 at v0.6.0: the export surface was additive, but the new required
+  segment `LIB_MLKEM_POLY_BSS` breaks a v0.5.1 consumer cfg at link. It did NOT
+  move for v0.2.0 (additive) or v0.3.0 (implementation-only).
 - `src/lib_manifest.s` carries the §5 aggregates. Footprint equates are
   **safe-direction**: ≥ measured, rounded UP to the next 256-byte boundary.
   The basis is the **placed span** of the segments they cover (internal
