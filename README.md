@@ -22,7 +22,7 @@ built on; **Phase 2 is everything else** in FIPS 203:
 | Phase | Scope | State |
 |---|---|---|
 | **P1** | Keccak-f[1600], SHA3-256/512, SHAKE128/256, KAT-verified in VICE, contract-packaged | **complete** — all four functions verified against 820 NIST CAVP vectors, measured, optimised, packaged |
-| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 55/55 mutants killed; measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
+| **P2** | mod-3329 arithmetic and NTT, samplers, codecs, K-PKE, ML-KEM-768 KeyGen/Encaps/Decaps vs three oracles in VICE, measured, packaged | **complete** — every ACVP vector, hazmat interop both ways, 48/48 mutants killed at P2 (55/55 with v0.6.0's 7 seed mutants); measured at 61.9M cycles keygen+decaps at v0.5.0, **51.4M after the P3 pass** (v0.5.1, six measured levers, implementation-only) |
 | P4 | c64-https consumer wiring | consumer-side, not this repo |
 
 P1 was the gating unknown: **no 6502 Keccak implementation existed anywhere**
@@ -667,7 +667,11 @@ proves it by linking the archive into a probe image.
 whenever `mlkem_kem.o` is linked, i.e. for any use of the ML-KEM entry points;
 a Keccak-only consumer, or one pulling only Keccak members from `mlkem.a`, has
 no such segment and omits the line or uses `optional = yes`).
-`LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
+`LIB_MLKEM_RODATA` **requires `align = $40`** (P2; dropping it makes ld65
+warn, and the link fails whenever the layout breaks one of the sources'
+`.assert`s — `keccak_rc` 8-aligned, the codec and CBD tables not straddling a
+page — which is most layouts but not all: do not rely on the failure, keep the
+align);
 `LIB_MLKEM_BSS` and `LIB_MLKEM_POLY_BSS` each **require `align = $100`** and
 must follow every file-emitting segment of their area; they may live in
 different areas; `cfg/mlkem-example.cfg` states what breaks if any is
@@ -678,8 +682,9 @@ the link rather than corrupting at runtime.
 §8.1 `sqtab` at `LIB_SHARED_SQTAB_BASE` (this library provides it unless you
 build with `-D SHARED_SQTAB_INIT`, in which case your designated owner does
 and this library imports it — never both); `mlkem_arith_init` builds the
-mod-q tables in `LIB_MLKEM_BSS`. Mirror the image guard in your own link
-(`cfg/mlkem-example.cfg` shows the three lines).
+mod-q tables in `LIB_MLKEM_BSS`. Mirror the image guard in your own link:
+one `.assert` per MEMORY area of it, file-emitting or bss-only, each area with
+`define = yes` (`cfg/mlkem-example.cfg` has the line).
 
 **Calling ML-KEM-768:** six 16-bit pointers in the parameter block at
 `mlkem_arg_ek` (`ek`, `dk`, `ct`, `key`, `seed`, `z`), set once; then
@@ -711,7 +716,8 @@ the seed pays KeyGen (to produce `ek`) plus `mlkem_decaps_seed`:
 **Upgrading from v0.5.1 (ABI 3):** the eight polynomials now live in their own
 segment. Add `LIB_MLKEM_POLY_BSS: load = MAIN, type = bss, define = yes, align
 = $100;` to your cfg (any area, e.g. RAM under I/O at `$D000`; it must come
-after every file-emitting segment of its area). A v0.5.1 cfg that does not
+after every file-emitting segment of its area, and that area needs its own
+sqtab guard line and `define = yes`). A v0.5.1 cfg that does not
 fails to link with `Missing memory area assignment for segment
 'LIB_MLKEM_POLY_BSS'`, which is why `LIB_MLKEM_ABI_VERSION` moved 2 → 3.
 A consumer of `mlkem-keccak.a` alone omits the line or marks it

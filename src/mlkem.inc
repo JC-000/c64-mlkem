@@ -18,15 +18,16 @@
 ;     LIB_MLKEM_CODE      library code
 ;     LIB_MLKEM_RODATA    read-only data: Keccak round constants, NTT zetas
 ;                         and constants, CBD and compress tables (897 B).
-;                         REQUIRES align = $40 (secret-indexed tables sit at
-;                         64 B boundaries; a cfg that drops it fails the link
-;                         whenever a table would then straddle a page, and
-;                         otherwise only warns)
+;                         REQUIRES align = $40. Dropping it makes ld65
+;                         warn; the link fails whenever the layout breaks
+;                         one of the sources' asserts (keccak_rc 8-aligned,
+;                         codec/CBD tables not straddling a page), which is
+;                         most layouts but not all. Do not rely on the
+;                         failure: keep the align.
 ;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
 ;                         parameter block (2,545 B incl. alignment fill in
 ;                         the probe link; the fill follows archive member
 ;                         order, 2,312-3,197 B measured — size from your map)
-;                         —
 ;                         REQUIRES align = $100
 ;     LIB_MLKEM_POLY_BSS  the eight K-PKE polynomials, exactly 4,096 B —
 ;                         REQUIRES align = $100 (v0.6.0; may sit in a

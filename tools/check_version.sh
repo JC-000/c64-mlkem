@@ -9,8 +9,8 @@
 #    prints "(no xo65 object file)" and exits 0, a silent pass), MAJOR /
 #    MINOR / PATCH must equal the VERSION file and LIB_MLKEM_ABI_VERSION
 #    must equal <abi>, the expected constant in the Makefile. The member
-#    must export EXACTLY these four symbols (SPEC §1 TU isolation: "the four
-#    equates and nothing else").
+#    must export EXACTLY these four symbols (SPEC §1 TU isolation, as applied
+#    by this repo in src/lib_version.s).
 # 2. Link legs against mlkem.a: a v0.5.1-style cfg (no LIB_MLKEM_POLY_BSS)
 #    must FAIL with ld65's "Missing memory area assignment" message; the same
 #    cfg with the segment must link. This is what the ABI 3 number promises.
@@ -25,7 +25,16 @@ cd "$(dirname "$0")/.."
 a=$1; ak=$2; want_abi=$3; drivers=$4; pulls=$5
 member=mlkem_lib_version.o
 [ -f "$a" ] && [ -f "$ak" ] || { echo "FAIL: archive missing"; exit 2; }
-ver=$(tr -d ' \t\r\n' < VERSION)
+# Strip only a trailing CR and leading/trailing blanks; internal whitespace
+# is an error, not something to squeeze out.
+ver=$(head -n 1 VERSION | tr -d '\r' | sed 's/^[ 	]*//; s/[ 	]*$//')
+case $ver in
+    [0-9]*.[0-9]*.[0-9]*) ;;
+    *) echo "FAIL: VERSION is not MAJOR.MINOR.PATCH: '$ver'"; exit 2 ;;
+esac
+case $ver in
+    *[!0-9.]*) echo "FAIL: VERSION has characters other than digits and dots: '$ver'"; exit 2 ;;
+esac
 want_major=${ver%%.*}; rest=${ver#*.}; want_minor=${rest%%.*}; want_patch=${rest#*.}
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/check_version.XXXXXX")
@@ -52,12 +61,14 @@ equates() {
     rc=0
     nexp=$(printf '%s\n' "$dump" | grep -c .)
     if [ "$nexp" -ne 4 ]; then
-        echo "FAIL: $arch: $member exports $nexp symbols, expected exactly 4 (TU isolation, SPEC §1)"; rc=1
+        echo "FAIL: $arch: $member exports $nexp symbols, expected exactly 4 (SPEC §1 TU isolation, as applied by src/lib_version.s)"; rc=1
     fi
     # `: abs` is required: without it ca65 infers zeropage and every
     # consumer .import warns "Address size mismatch" (address size 0x02).
-    bad=$(printf '%s\n' "$dump" | awk '$3 != "0x02" { print $1 "(" $3 ")" }')
-    if [ -n "$bad" ]; then
+    bad=$(printf '%s\n' "$dump" | awk 'NF && $3 != "0x02" { print $1 "(" $3 ")" }')
+    if [ "$nexp" -eq 0 ]; then
+        echo "FAIL: $arch: $member exports nothing"; rc=1
+    elif [ -n "$bad" ]; then
         echo "FAIL: $arch: not exported as absolute (: abs): $bad"; rc=1
     fi
     for pair in MAJOR:$want_major MINOR:$want_minor PATCH:$want_patch ABI:$want_abi; do
@@ -113,14 +124,27 @@ mutate() {
     esac
 }
 mkdir "$tmp/mut"
+# Positive control: unmutated copies of the archives must PASS the check, or a
+# copy/ar65 problem would make every mutated case look "caught".
+if ! cp "$abs_a" "$tmp/mut/m.a" || ! cp "$abs_k" "$tmp/mut/k.a"; then
+    echo "FAIL: self-test positive control: cannot copy the archives"; fail=1
+elif equates "$tmp/mut/m.a" && equates "$tmp/mut/k.a"; then
+    echo "  ok  self-test: unmutated archive copies pass (positive control)"
+else
+    echo "FAIL: self-test positive control: unmutated archive copies do not pass"; fail=1
+fi
 for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
     mutate "$name" < src/lib_version.s > "$tmp/mut/lib_version.s"
     if cmp -s src/lib_version.s "$tmp/mut/lib_version.s"; then
         echo "FAIL: self-test $name mutation changed nothing (src/lib_version.s shape moved)"; fail=1; continue
     fi
     (cd "$tmp/mut" && ca65 -o "$member" lib_version.s) || { echo "FAIL: self-test cannot assemble $name"; fail=1; continue; }
-    cp "$abs_a" "$tmp/mut/m.a"; cp "$abs_k" "$tmp/mut/k.a"
-    (cd "$tmp/mut" && ar65 r m.a "$member" && ar65 r k.a "$member")
+    if ! cp "$abs_a" "$tmp/mut/m.a" || ! cp "$abs_k" "$tmp/mut/k.a"; then
+        echo "FAIL: self-test $name: cannot copy the archives"; fail=1; continue
+    fi
+    if ! (cd "$tmp/mut" && ar65 r m.a "$member" && ar65 r k.a "$member"); then
+        echo "FAIL: self-test $name: ar65 could not replace the member"; fail=1; continue
+    fi
     if equates "$tmp/mut/m.a" >/dev/null && equates "$tmp/mut/k.a" >/dev/null; then
         echo "FAIL: self-test: archives rebuilt with a mutated $name PASSED the check"; fail=1
     else
