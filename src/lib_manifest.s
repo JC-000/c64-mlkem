@@ -40,8 +40,10 @@
 ; v0.6.0 measurement — the shipped mlkem.a configuration, no test hooks:
 ;   LIB_MLKEM_CODE   6644 B   (1474 Keccak-f + 281 sponge + 84 sqtab init +
 ;                              1629 NTT/field + 221 samplers + 681 codecs +
-;                              2274 K-PKE/ML-KEM, of which mlkem_decaps_seed
-;                              is 333)
+;                              2274 K-PKE/ML-KEM, of which 333 are
+;                              v0.6.0: 329 B entry + el_habs + el_su, plus
+;                              4 B: jsr kpke_keygen_core in kpke_keygen and
+;                              the rts closing kpke_keygen_core)
 ;   LIB_MLKEM_RODATA  897 B   (192 Keccak RC + 407 zetas/NTT + 32 CBD +
 ;                              256 compress tables + 1 + 9 B align pad)
 ;   ------------------------

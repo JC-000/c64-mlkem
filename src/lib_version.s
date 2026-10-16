@@ -64,14 +64,17 @@
 ;              §7 ("Whether the counter moves turns on what the code does")
 ;              moves it "when a consumer conforming to the previously
 ;              documented contract can be broken by the change", so the
-;              counter moves 2 -> 3. §7 adds that such a change is not
-;              "subject to the deprecation cycle", so no one-MINOR-release
-;              deprecation applies; the contract's ADOPTERS.md notes that
-;              c64-mlkem's conformance holds only while no released consumer
-;              pins a tag. Fix in the consumer: add a LIB_MLKEM_POLY_BSS line
-;              (type = bss, align = $100) to its cfg; see
-;              cfg/mlkem-example.cfg. Consumers gate by equality on the
-;              generation (.assert LIB_MLKEM_ABI_VERSION = 3, lderror, ...).
+;              counter moves 2 -> 3. A changed memory model is also
+;              breaking under §7's first bullet, so §7's "one-MINOR-release
+;              deprecation cycle" nominally applies. It was NOT run: no
+;              released consumer pins a c64-mlkem tag (the contract's
+;              consumers.md lists none; c64-https wiring is P4). That is the
+;              zero-consumer reasoning SPEC grants explicitly only for the
+;              bare exports (§1), applied here on this repo's own judgement:
+;              a divergence (README row 16). Fix in the consumer: add a
+;              LIB_MLKEM_POLY_BSS line (type = bss, align = $100) to its
+;              cfg; see cfg/mlkem-example.cfg. Consumers gate by equality on
+;              the generation (.assert LIB_MLKEM_ABI_VERSION = 3, lderror).
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0

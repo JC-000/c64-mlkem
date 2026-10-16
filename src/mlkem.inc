@@ -16,7 +16,10 @@
 ;
 ; SEGMENTS to place in your cfg (contract §4):
 ;     LIB_MLKEM_CODE      library code
-;     LIB_MLKEM_RODATA    round constants / rho-offset tables
+;     LIB_MLKEM_RODATA    read-only data: Keccak round constants, NTT zetas
+;                         and constants, CBD and compress tables (897 B).
+;                         REQUIRES align = $40 (secret-indexed tables sit at
+;                         64 B boundaries; a cfg that drops it fails the link)
 ;     LIB_MLKEM_BSS       Keccak state, reduction tables, scratch, the
 ;                         parameter block (2,545 B incl. alignment fill in
 ;                         the probe link; the fill follows archive member
@@ -40,9 +43,11 @@
 ;     .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 1), lderror, "needs c64-mlkem v0.1+"
 ;     mlkem_decaps_seed needs MINOR >= 6. The ABI counter is a generation
 ;     counter, gated by equality (SPEC §1/§7), not by >=; this release is
-;     generation 3 (four segments, LIB_MLKEM_POLY_BSS required):
+;     generation 3 (mlkem.a needs four segments, LIB_MLKEM_POLY_BSS being
+;     required; one counter covers mlkem-keccak.a too, which has no such
+;     segment):
 ;     .import LIB_MLKEM_ABI_VERSION
-;     .assert LIB_MLKEM_ABI_VERSION = 3, lderror, "c64-mlkem ABI 3 (four segments) required"
+;     .assert LIB_MLKEM_ABI_VERSION = 3, lderror, "c64-mlkem ABI 3 required"
 ;
 ; FOOTPRINT GATE (contract §5):
 ;     .import LIB_MLKEM_RESIDENT_BYTES, LIB_MLKEM_COLD_BYTES
@@ -210,13 +215,14 @@ MLKEM_INC_INCLUDED = 1
 ; dk = KeyGen(d, z).dk, implicit rejection included. It re-runs K-PKE.KeyGen
 ; and recomputes H(ek) itself, so no dk (2,400 B) or ek (1,184 B) buffer
 ; exists during the call: mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are
-; neither read nor written, and it adds no BSS. Same constant-time compare and select as
-; mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps less 0.26M. A
-; client that keeps only the seed still runs mlkem_keygen to send ek, so its
-; handshake is KeyGen + this = 21,803,250 + 50,794,288 = 72,597,538 cycles,
-; OVER the 40-70M roadmap budget (51,057,588 holding dk: +21,539,950). The
-; saving is not holding dk between KeyGen and Decaps; mlkem_keygen still
-; writes dk through mlkem_arg_dk, so KeyGen needs a transient 2,400 B buffer.
+; neither read nor written, and it adds no BSS. Same constant-time compare
+; and select as mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps
+; less 0.26M. A client that keeps only the seed still runs mlkem_keygen to
+; send ek, so its handshake is KeyGen + this = 21,803,250 + 50,794,288 =
+; 72,597,538 cycles, OVER the 40-70M roadmap budget (51,057,588 holding dk:
+; +21,539,950). The saving is not holding dk between KeyGen and Decaps;
+; mlkem_keygen still writes dk through mlkem_arg_dk, so KeyGen needs a
+; transient 2,400 B buffer.
 ;
 ; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
 ; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
