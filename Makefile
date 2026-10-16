@@ -603,7 +603,7 @@ help:
 	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
 	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
-	@echo "make check-version  the four §1 equates in both archives vs VERSION / EXPECTED_ABI; 3-segment cfg fails, 4-segment links; fires on a wrong ABI"
+	@echo "make check-version  the four §1 equates (exactly four exports, : abs) in both archives vs VERSION / EXPECTED_ABI; 3-segment cfg fails, 4-segment links; fires on a mutated member (ABI, PATCH, extra export, no : abs)"
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs; the rejected knobs fire"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"

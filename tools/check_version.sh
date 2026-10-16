@@ -15,7 +15,8 @@
 #    must FAIL with ld65's "Missing memory area assignment" message; the same
 #    cfg with the segment must link. This is what the ABI 3 number promises.
 # 3. Proof the guard fires: copies of the archives with the member rebuilt at
-#    ABI 2, at a wrong PATCH, and with an extra export, must fail step 1.
+#    ABI 2, at a wrong PATCH, without `: abs`, and with an extra constant or
+#    label export, must each fail step 1.
 #
 # No `$` in any -D value anywhere here (CLAUDE.md trap).
 set -u
@@ -24,7 +25,7 @@ cd "$(dirname "$0")/.."
 a=$1; ak=$2; want_abi=$3; drivers=$4; pulls=$5
 member=mlkem_lib_version.o
 [ -f "$a" ] && [ -f "$ak" ] || { echo "FAIL: archive missing"; exit 2; }
-ver=$(tr -d ' \r\n' < VERSION)
+ver=$(tr -d ' \t\r\n' < VERSION)
 want_major=${ver%%.*}; rest=${ver#*.}; want_minor=${rest%%.*}; want_patch=${rest#*.}
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/check_version.XXXXXX")
@@ -38,13 +39,26 @@ equates() {
     ar65 t "$abs" | grep -qx "$member" || { echo "FAIL: $arch has no $member"; return 1; }
     (cd "$d" && ar65 x "$abs" "$member")
     [ -s "$d/$member" ] || { echo "FAIL: could not extract $member from $arch"; return 1; }
-    dump=$(od65 --dump-exports "$d/$member" \
-           | sed -n 's/^ *Name: *"\([^"]*\)".*/\1/p; s/^ *Value: *0x[0-9A-Fa-f]* *(\([0-9]*\)).*/\1/p' \
-           | paste -d " " - -)
+    # One record per export: `name value address-size`. A record is flushed
+    # at the next `Index:` line (and at the end), so an export with no Value
+    # line is still counted and shows as value NA.
+    dump=$(od65 --dump-exports "$d/$member" | awk '
+        function flush() { if (name != "") print name, (val == "" ? "NA" : val), (asz == "" ? "NA" : asz) }
+        /^ *Index:/ { flush(); name = ""; val = ""; asz = "" }
+        /Address size:/ { asz = $3 }
+        /Name:/ { name = $2; gsub(/"/, "", name) }
+        /Value:/ { v = $0; sub(/^.*\(/, "", v); sub(/\).*$/, "", v); val = v }
+        END { flush() }')
     rc=0
     nexp=$(printf '%s\n' "$dump" | grep -c .)
     if [ "$nexp" -ne 4 ]; then
         echo "FAIL: $arch: $member exports $nexp symbols, expected exactly 4 (TU isolation, SPEC §1)"; rc=1
+    fi
+    # `: abs` is required: without it ca65 infers zeropage and every
+    # consumer .import warns "Address size mismatch" (address size 0x02).
+    bad=$(printf '%s\n' "$dump" | awk '$3 != "0x02" { print $1 "(" $3 ")" }')
+    if [ -n "$bad" ]; then
+        echo "FAIL: $arch: not exported as absolute (: abs): $bad"; rc=1
     fi
     for pair in MAJOR:$want_major MINOR:$want_minor PATCH:$want_patch ABI:$want_abi; do
         n=LIB_MLKEM_${pair%%:*}_VERSION; [ "${pair%%:*}" = ABI ] || n=LIB_MLKEM_VERSION_${pair%%:*}
@@ -88,20 +102,27 @@ fi
 # --- the guard must fire ------------------------------------------------
 abs_a="$(cd "$(dirname "$a")" && pwd)/$(basename "$a")"
 abs_k="$(cd "$(dirname "$ak")" && pwd)/$(basename "$ak")"
+# mutate <name>: reads src/lib_version.s on stdin, writes the mutant on stdout.
+mutate() {
+    case $1 in
+    ABI)          sed 's/^LIB_MLKEM_ABI_VERSION *= *[0-9]*/LIB_MLKEM_ABI_VERSION   = 2/' ;;
+    PATCH)        sed 's/^LIB_MLKEM_VERSION_PATCH *= *[0-9]*/LIB_MLKEM_VERSION_PATCH = 9/' ;;
+    NO-ABS)       sed 's/^\.export LIB_MLKEM_ABI_VERSION:.*/.export LIB_MLKEM_ABI_VERSION/' ;;
+    EXTRA-EXPORT) awk '{ print } /^LIB_MLKEM_ABI_VERSION *=/ { print "LIB_MLKEM_EXTRA = 1"; print ".export LIB_MLKEM_EXTRA: abs" }' ;;
+    LABEL-EXPORT) awk '{ print } END { print ".export LIB_MLKEM_LBL"; print "LIB_MLKEM_LBL: rts" }' ;;
+    esac
+}
 mkdir "$tmp/mut"
-for variant in "ABI:s/^LIB_MLKEM_ABI_VERSION *= *[0-9]*/LIB_MLKEM_ABI_VERSION   = 2/" \
-               "PATCH:s/^LIB_MLKEM_VERSION_PATCH *= *[0-9]*/LIB_MLKEM_VERSION_PATCH = 9/" \
-               "EXTRA-EXPORT:s/^LIB_MLKEM_ABI_VERSION   = 3/LIB_MLKEM_ABI_VERSION   = 3\nLIB_MLKEM_EXTRA = 1\n.export LIB_MLKEM_EXTRA: abs/"; do
-    name=${variant%%:*}; expr=${variant#*:}
-    sed "$expr" src/lib_version.s > "$tmp/mut/lib_version.s"
+for name in ABI PATCH NO-ABS EXTRA-EXPORT LABEL-EXPORT; do
+    mutate "$name" < src/lib_version.s > "$tmp/mut/lib_version.s"
     if cmp -s src/lib_version.s "$tmp/mut/lib_version.s"; then
         echo "FAIL: self-test $name mutation changed nothing (src/lib_version.s shape moved)"; fail=1; continue
     fi
-    (cd "$tmp/mut" && ca65 -o "$member" lib_version.s) || { echo "FAIL: self-test cannot assemble"; fail=1; continue; }
+    (cd "$tmp/mut" && ca65 -o "$member" lib_version.s) || { echo "FAIL: self-test cannot assemble $name"; fail=1; continue; }
     cp "$abs_a" "$tmp/mut/m.a"; cp "$abs_k" "$tmp/mut/k.a"
     (cd "$tmp/mut" && ar65 r m.a "$member" && ar65 r k.a "$member")
     if equates "$tmp/mut/m.a" >/dev/null && equates "$tmp/mut/k.a" >/dev/null; then
-        echo "FAIL: self-test: archives rebuilt with a wrong $name PASSED the check"; fail=1
+        echo "FAIL: self-test: archives rebuilt with a mutated $name PASSED the check"; fail=1
     else
         echo "  ok  self-test: a mutated $name in lib_version.o is caught"
     fi
