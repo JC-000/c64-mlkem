@@ -144,9 +144,10 @@ Session memory (decisions and open items) is mirrored in the Claude memory dir:
 - **`mlkem_decaps_seed`**: Decaps from the 64 B KeyGen seed `d‖z`, no
   `dk`/`ek` buffer. 50,794,288 cycles (keygen + `mlkem_decaps` on the same
   inputs: 51,057,588). +333 B code: 329 B for the entry and its two element
-  helpers (`el_habs`, `el_su`), plus 4 B (`jsr kpke_keygen_core` + `rts`) in
-  `kpke_keygen`. +0 BSS. Resident 7,541 B, declared 7680; headroom in the
-  7,680 B window is 76–139 B, depending on the consumer's CODE→RODATA gap.
+  helpers (`el_habs`, `el_su`), plus 4 B: the `jsr kpke_keygen_core` in
+  `kpke_keygen` and the `rts` closing `kpke_keygen_core`. +0 BSS. Resident
+  7,541 B, declared 7680; headroom in the 7,680 B window is 76–139 B,
+  depending on the consumer's CODE→RODATA gap.
 - **`LIB_MLKEM_POLY_BSS`**: the eight K-PKE polynomials (4,096 B, `bss`,
   `align = $100`) are a fourth segment, required whenever `mlkem_kem.o` is
   linked, so c64-https can place them under I/O at `$D000`. `LIB_MLKEM_BSS`
@@ -161,14 +162,18 @@ Session memory (decisions and open items) is mirrored in the Claude memory dir:
   first bullet, so its "one-MINOR-release deprecation cycle" nominally
   applies; it was not run, because no released consumer pins a c64-mlkem tag
   (contract `consumers.md` lists none; c64-https wiring is P4). SPEC grants
-  that zero-consumer reasoning explicitly only for bare exports (§1), so this
-  is a divergence (README row 16). Consumer fix: add the
+  that zero-consumer reasoning explicitly only for the bare exports (§1) and
+  the bare `LIB_PRECALC_*` triple (§8.4), so this is a divergence (README
+  row 16). §7 classes the change MAJOR, but pre-1.0 it ships on a MINOR bump
+  (§1), hence 0.6.0. Consumer fix: add the
   `LIB_MLKEM_POLY_BSS` line to its cfg; a Keccak-only consumer omits it or
   marks it `optional = yes`. Gate by equality
   (`.assert LIB_MLKEM_ABI_VERSION = 3`).
-- `make check-version` (in `make test`) pins the four version equates in both
-  archives, the three-segment-fails / four-segment-links legs, and proves it
-  fires on a wrong ABI. `EXPECTED_ABI` in the Makefile moves only per SPEC §7.
+- `make check-version` (in `make test`) pins MAJOR/MINOR/PATCH against
+  `VERSION` and the ABI against `EXPECTED_ABI` in both archives, requires
+  exactly four `: abs` exports, checks the three-segment-fails /
+  four-segment-links legs, and proves it fires on a mutated member.
+  `EXPECTED_ABI` in the Makefile moves only per SPEC §7.
 - Seven new `seed-*` mutants; the gate is **55/55**.
 
 ### The measured cost to state plainly
@@ -188,9 +193,12 @@ Commits that came out of review: e75ea3a ("adversarial-review amendments"),
 556bf7b ("The layout review's 2-way split") and 150f421 ("review fixes").
 At 150f421 the full gate ran 55/55 killed, and an independent fresh-context
 review (2026-10-16) added 9 throwaway mutants of `mlkem_decaps_seed`, all
-killed (not in the repo). A further review round
-(this session) led to the pre-release fixes: ABI 3, divergence 15, the
-handshake cost, `check-version`, the image-guard form and doc corrections.
+killed (not in the repo). Further review rounds (2 and 3, this session) led
+to the pre-release fixes: ABI 3, divergences 15–16, the handshake cost,
+`check-version`, the image-guard form (every MEMORY area, no-overlap) and doc
+corrections. Round 3's fixes: the guard must cover bss-only areas too, the
+guard text in `mlkem.inc`, SPEC citations (§1/§8.4 for the zero-consumer
+carve-out), RODATA align wording, and hardening of `check_version.sh`.
 Those fix commits go up as part of PR #10 before the merge.
 
 ### Open items

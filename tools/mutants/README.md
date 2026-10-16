@@ -230,10 +230,10 @@ same agent; the suite landed red first (20954dd) before the implementation
 (f55d9bc). PR #10's description records three adversarial rounds; commits
 that came out of review are e75ea3a ("adversarial-review amendments"),
 556bf7b ("The layout review's 2-way split") and 150f421 ("review fixes").
-At 150f421 the full gate ran 55/55
-killed, and an independent fresh-context adversarial review (2026-10-16)
-added 9 extra mutants of `mlkem_decaps_seed`, all killed. Those 9 were
-throwaway: they are not in the repo and are recorded only in that review.
+At 150f421 the full gate ran 55/55 killed, and an independent
+fresh-context adversarial review (2026-10-16) added 9 extra mutants of
+`mlkem_decaps_seed`, all killed. Those 9 were throwaway: they are not in the
+repo and are recorded only in that review.
 None pads: the suite does not depend on RODATA's page phase.
 
 | name | fault | class | localising failure line |

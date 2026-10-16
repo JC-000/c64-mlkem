@@ -359,7 +359,9 @@ and one weak vector in WP2, fixed before merge.
 
 Where SPEC and `HANDOFF-P2.md` disagree, SPEC wins (§6.1); where the
 implementation chose a behaviour FIPS 203 leaves to the caller, it is pinned
-here and in `src/mlkem.inc`.
+here and in `src/mlkem.inc`. Row 16 is different in kind: there this
+repository departs from SPEC itself (a deprecation cycle it did not run), not
+from the brief.
 
 | # | Brief / spec says | What shipped | Why |
 |---|---|---|---|
@@ -372,7 +374,7 @@ here and in `src/mlkem.inc`.
 | 13 | §6.4: one manifest per member set | `mlkem-keccak.a` ships its **own manifest object** (`-D MLKEM_KECCAK_ONLY=1`, `build/kobj`): masks `0/0`, no §8.4 rows, `RESIDENT_BYTES = 2048` | Its member set never reads `sqtab`. `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** (no target can honor it build-wide). `check-archives` pins both manifests with `od65`; `check-staleness` pins that alternating `lib` / `lib-keccak` on a warm tree rebuilds nothing and overwrites neither. |
 | 14 | §8.3 canonical `ct_mul_8x8` | **not taken**; private `mlkem_`-prefixed 12×12 multiply on `sqtab` directly; bit `$0004` clear in both masks | `docs/contract-p2-alignment.md` §3: the canonical 8×8 body costs ~4 partials + 2 re-bakes per product through `jsr`, ≈ 5–8M cycles per keygen+decaps more than the inline 6+6 split. CT obligations are met privately: every secret-indexed table is page-aligned and the cycle count is pinned input-independent. |
 | 15 | HANDOFF-P2 (Phase 2 rules): library TUs use `LIB_MLKEM_CODE` / `_RODATA` / `_BSS` only | **a fourth segment, `LIB_MLKEM_POLY_BSS`** (4,096 B, `bss`, `align = $100`), required by `mlkem.a`; the eight K-PKE polynomials moved out of `LIB_MLKEM_BSS` (v0.6.0) | A consumer can place the 4 KB of page-aligned polynomials separately from the 2.5 KB of tables and scratch (c64-https: RAM under I/O at `$D000`) instead of needing 6.6 KB in one area. **Consequence: `LIB_MLKEM_ABI_VERSION` 2 → 3** (SPEC §1 "changed memory model", §7), because a v0.5.1-conforming cfg now fails to link. This also supersedes `HANDOFF-P2.md`'s "`LIB_MLKEM_ABI_VERSION` … moves only on a breaking export change": the counter moves for a changed memory model too. |
-| 16 | §7: "Breaking changes go through a one-MINOR-release deprecation cycle." | **not run for ABI 3.** `LIB_MLKEM_POLY_BSS` became required in v0.6.0 with no earlier release shipping both forms | A changed memory model is breaking under §7's first bullet, so the cycle nominally applies. No released consumer pins a c64-mlkem tag (the contract's `consumers.md` lists none; c64-https wiring is P4). SPEC grants zero-consumer reasoning explicitly only for bare exports (§1), so applying it here is this repo's own judgement and a divergence. |
+| 16 | §7: "Breaking changes go through a one-MINOR-release deprecation cycle." | **not run for ABI 3.** `LIB_MLKEM_POLY_BSS` became required in v0.6.0 with no earlier release shipping both forms | A changed memory model is breaking under §7's first bullet, so the cycle nominally applies. No released consumer pins a c64-mlkem tag (the contract's `consumers.md` lists none; c64-https wiring is P4). SPEC grants zero-consumer reasoning explicitly only for the bare exports (§1) and the bare `LIB_PRECALC_*` triple (§8.4), so applying it here is this repo's own judgement and a divergence. §7 classes the change MAJOR, but pre-1.0 it ships on a MINOR bump (§1), hence 0.6.0. |
 
 Contract alignment for P2 — the v0.11.0 → v0.13.0 clause diff, the exact
 §8.1 / §8.0 / §6.7 shapes and the items that need the user (a §8.4
@@ -616,6 +618,7 @@ make tables           # regenerate src/keccak_tables.inc + src/mlkem_tables.inc
 make check-manifest   # §5 placed span vs footprint equates, both archives
 make check-precalc    # precalc_table.inc == contract's at CONTRACT_PRECALC_REF
 make check-archives   # no driver object in any archive; per-archive manifest values
+make check-version    # version equates + ABI pinned; 3-segment cfg fails
 make check-staleness  # changed knob flips the artifact; repeat rebuilds nothing
 make check-sqtab-guard  # the sqtab image guard fires on a deliberate overrun
 make check-prefix     # every archive export under mlkem_ / LIB_MLKEM_ / keccak_
@@ -738,7 +741,8 @@ at any stage.
 ## Divergences from the P1 handoff brief
 
 Per contract §6.1, where SPEC and the handoff disagree, **SPEC wins**; the
-differences are recorded here. (P2's rows 7–14 are in the Phase 2 section.)
+differences are recorded here. (P2's rows 7–14 and v0.6.0's rows 15–16 are
+in the Phase 2 section.)
 
 | # | Handoff says | SPEC v0.11.0 / reality | Resolution |
 |---|---|---|---|

@@ -54,16 +54,18 @@ below). No ML-DSA ever. No REU anywhere.
    `mlkem_decaps_seed`** — Decaps from the 64 B
    seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
    the same inputs: 51,057,588). **+333 B code, +0 BSS** (329 B for the
-   entry and its two element helpers (`el_habs`, `el_su`), plus 4 B
-   (`jsr kpke_keygen_core` + `rts`) in `kpke_keygen`): resident is now
+   entry and its two element helpers (`el_habs`, `el_su`), plus 4 B: the
+   `jsr kpke_keygen_core` in `kpke_keygen` and the `rts` closing
+   `kpke_keygen_core`): resident is now
    **7,541 B, declared 7680** — the declaration now sits AT the 7,680 B
    window's edge. Headroom in the window is **76–139 B**: 7,680 − 7,541 −
    the CODE→RODATA gap, which is the consumer's, `(−code_end) mod $40` =
    0–63 B. This probe link: gap 10 → 129 B; CODE at a page-aligned start:
-   gap 12 → 127 B. `make check-manifest` prints all three. The 7,714 B test build is no longer covered. Its link also
-   moves NTT / INTT / basemul by +64 / +64 / +128 (RODATA page phase) and
-   KeyGen by +1,548 in total (+12 for the shared `kpke_keygen_core` call,
-   plus 6 NTT × 64 and 9 basemul × 128 of that page phase); items 1–5 above are
+   gap 12 → 127 B. `make check-manifest` prints all three. The 7,714 B test
+   build is no longer covered. The v0.6.0 link also moves NTT / INTT /
+   basemul by +64 / +64 / +128 (RODATA page phase) and KeyGen by +1,548 in
+   total (+12 for the shared `kpke_keygen_core` call, plus 6 NTT × 64 and
+   9 basemul × 128 of that page phase); items 1–5 above are
    v0.5.1's unless they say otherwise. 55 mutants (seven `seed-*`).
    `make test-mlkem` runs `test_decaps_seed.py` after `test_mlkem.py`: the
    seed entry jumps into `encrypt_body`, `kpke_decrypt` and `mlkem_decaps`
@@ -192,8 +194,10 @@ has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
   its "one-MINOR-release deprecation cycle" nominally applies; v0.6.0 did not
   run it because no released consumer pins a c64-mlkem tag (contract
   consumers.md lists none; c64-https wiring is P4). SPEC grants that
-  zero-consumer reasoning explicitly only for bare exports (§1), so this is a
-  divergence (README row 16). `make check-version` pins the value
+  zero-consumer reasoning explicitly only for the bare exports (§1) and the
+  bare `LIB_PRECALC_*` triple (§8.4), so this is a divergence (README row 16).
+  §7 classes the change MAJOR, but pre-1.0 it ships on a MINOR bump (§1),
+  hence 0.6.0. `make check-version` pins the value
   (`EXPECTED_ABI` in the Makefile) and the segment model. It went 1 → 2 at
   v0.4.0 for the bare-export removal and 2 → 3 at v0.6.0: the export surface
   was additive, but the new required
