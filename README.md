@@ -39,7 +39,7 @@ by a measurement, and **it did not survive** — see below.
 | [`v0.4.0`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.4.0) | 456,605 | — | 1,477 B | Contract v0.11.0: bare version exports dropped (ABI 2), prefixed member basenames, §6.3 staleness guard. |
 | v0.5.0 | 456,720 ¹ | 61,928,289 | 6,719 B | **ML-KEM-768 complete.** KeyGen 26.8M, Encaps 30.2M, Decaps 35.1M cycles; 87.5% of the 7,680 B window; ABI unchanged (additive). |
 | [`v0.5.1`](https://github.com/JC-000/c64-mlkem/releases/tag/v0.5.1) | 339,688 | 51,399,581 | 7,208 B | **P3 Lane A, cycle reduction.** Keccak −25.6% (theta fused, rho+pi as a generated lane script, RC via pointer — now link-invariant), INTT scaling half-folded. KeyGen 21.8M, Encaps 24.9M, Decaps 29.6M; 93.9% of the window; implementation-only, ABI 2 unchanged. |
-| **v0.6.0** | **339,688** | **51,403,753** ² | **7,541 B** | **`mlkem_decaps_seed`**: Decaps from the 64 B KeyGen seed `d‖z`, no `dk`/`ek` buffer, 50,794,288 cycles; +333 B code (329 B `mlkem_decaps_seed` itself, 4 B is the `jsr`/`rts` `kpke_keygen` gained when split), +0 BSS; 98.2% of the window; **ABI 2 → 3** (new export is additive, but the new required segment `LIB_MLKEM_POLY_BSS` breaks a v0.5.1 consumer cfg at link). |
+| **v0.6.0** | **339,688** | **51,403,753** ² | **7,541 B** | **`mlkem_decaps_seed`**: Decaps from the 64 B KeyGen seed `d‖z`, no `dk`/`ek` buffer, 50,794,288 cycles; +333 B code (329 B for the entry and its two element helpers (`el_habs`, `el_su`), plus 4 B (`jsr kpke_keygen_core` + `rts`) in `kpke_keygen`), +0 BSS; 98.2% of the window; **ABI 2 → 3** (new export is additive, but the new required segment `LIB_MLKEM_POLY_BSS` breaks a v0.5.1 consumer cfg at link). |
 
 ¹ Same code as v0.3.0; the RC table moved with the P2 rodata and 115 cycles of
 page-crossing moved with it (README, "Measured cycles per Keccak-f[1600]").
@@ -57,7 +57,9 @@ seed").
 >
 > KeyGen **21,803,250** · Encaps **24,882,439** · Decaps **29,600,503**
 > · 50.3 s for keygen+decaps at 1.023 MHz · display blanked.
-> `mlkem_decaps_seed` (keygen+decaps in one call, no `dk`): **50,794,288**.
+> `mlkem_decaps_seed` (Decaps from the 64 B seed, no `dk`): **50,794,288**.
+> **Seed-only client: KeyGen + `mlkem_decaps_seed` = 72,597,538 — OVER the
+> 40–70M budget** (51,057,588 holding `dk`; 71.0 s at 1.023 MHz).
 >
 > (v0.5.1 measured 51,399,581: KeyGen 21,801,702 · Encaps 24,880,455 ·
 > Decaps 29,597,879. The difference is page placement plus one `jsr`, see
@@ -68,7 +70,9 @@ seed").
 > under "Where the cycles go".)
 
 **That is inside the roadmap's 40–70M keygen+decaps budget, now just below
-its midpoint, and 58% of it is still Keccak.** The TLS client calls KeyGen
+its midpoint, and 58% of it is still Keccak — for a client that keeps `dk`.
+A client that keeps only the seed pays 72,597,538 and is over it (see
+"Decaps from the seed").** The TLS client calls KeyGen
 once and Decaps once per handshake, so the post-quantum half of
 `X25519MLKEM768` costs the C64 **about 50 seconds** of CPU per connection
 before X25519, the certificate chain and the record layer are counted. The
@@ -161,7 +165,9 @@ re-runs K-PKE.KeyGen from `d` (ŝ, t̂, ρ), streams `H(ek)` from t̂ one encode
 polynomial at a time (no 1,184 B `ek` buffer), runs K-PKE.Decrypt with ŝ
 already in NTT form so t̂ survives for the re-encryption, and then Decaps'
 own G, FO compare and select. It uses only the eight existing polynomials and
-`kem_hb`: **0 B of BSS added, +333 B of code** (329 B for the entry itself; 4 B is the `jsr`/`rts` that `kpke_keygen` gained when it was split to share `kpke_keygen_core`).
+`kem_hb`: **0 B of BSS added, +333 B of code** (329 B for the entry and its
+two element helpers, `el_habs` and `el_su`, plus 4 B — `jsr kpke_keygen_core`
+and `rts` — in `kpke_keygen`, which was split to share the core).
 
 `make bench-kem`, keyGen tcId 1's seed with a valid ciphertext to its `ek`:
 
@@ -171,11 +177,19 @@ own G, FO compare and select. It uses only the eight existing polynomials and
 | `mlkem_keygen` + `mlkem_decaps` on the same seed and ciphertext | 21,803,250 + 29,254,338 = 51,057,588 |
 | difference | −263,300 |
 
-It is cheaper than the two calls it replaces because of the codec passes it
-does not make: of KeyGen's three `ByteEncode12` passes over a polyvec (`ek`,
+It is 263,300 cycles cheaper than keygen + decaps on the same inputs because
+of the codec passes it does not make: of KeyGen's three `ByteEncode12` passes
+over a polyvec (`ek`,
 `dk_pke`, the copy of `ek` inside `dk`) only the one feeding H(ek) is left,
 and neither of Decaps' two `ByteDecode12` passes (ŝ, t̂) is needed. The
-permutation count is the same as the two calls'. Of the 50.8M: 87 Keccak-f permutations = 29,552,856 (58.2%), 12 NTT /
+permutation count is the same as the two calls'.
+
+**That comparison is not the handshake cost.** The client still runs
+`mlkem_keygen` to produce the `ek` it sends, so per handshake it is
+21,803,250 + 50,794,288 = **72,597,538** against 51,057,588 holding `dk`:
+**+21,539,950 cycles** (about 21 s at 1.023 MHz), and over the 40–70M budget.
+
+Of the 50.8M: 87 Keccak-f permutations = 29,552,856 (58.2%), 12 NTT /
 5 INTT / 24 basemul = 17,434,098 (34.3%), rest 3,807,334. The cycle count is
 identical for a valid ciphertext and for one bit flipped at either end
 (`make test-decaps-seed`, the same calibrated instrument as `test-mlkem`'s
@@ -208,7 +222,7 @@ Measured from the shipped `mlkem.a` linked into a probe image
 
 | Segment | bytes | of which |
 |---|---:|---|
-| `LIB_MLKEM_CODE` | 6,644 | Keccak 1,474 · sponge 281 · sqtab init 84 · NTT/field 1,629 · samplers 221 · codecs 681 · K-PKE/ML-KEM 2,274 (of which `mlkem_decaps_seed` 333) |
+| `LIB_MLKEM_CODE` | 6,644 | Keccak 1,474 · sponge 281 · sqtab init 84 · NTT/field 1,629 · samplers 221 · codecs 681 · K-PKE/ML-KEM 2,274 (of which 333 are v0.6.0: 329 B for the entry and its two element helpers (`el_habs`, `el_su`), plus 4 B (`jsr kpke_keygen_core` + `rts`) in `kpke_keygen`) |
 | `LIB_MLKEM_RODATA` | 897 | Keccak 192 (the RC table; the lane tables became immediates) · zetas + NTT constants 407 · CBD 32 · compress tables 256 · 1 · 9 B `align = $40` pad |
 | **resident total** | **7,541** | declared `LIB_MLKEM_RESIDENT_BYTES = 7680` (next 256-B boundary). The 7,714 B test build is no longer covered; it ships in no archive. v0.5.1: 7,208, v0.5.0: 6,719 |
 | `LIB_MLKEM_BSS` | 2,545 | see below (incl. alignment fill) |
@@ -221,7 +235,7 @@ Per work package, code + rodata:
 | P1 Keccak + sponge (after P3: +470 B for −25.6% cycles) | 1,947 | 25.8% |
 | WP1 field arithmetic + NTT (incl. `sqtab` init) | 2,120 | 28.1% |
 | WP2 samplers + codecs | 1,190 | 15.8% |
-| WP3 K-PKE + ML-KEM (v0.6.0: +333 for `mlkem_decaps_seed`) | 2,275 | 30.2% |
+| WP3 K-PKE + ML-KEM (v0.6.0: +333, 329 B for the entry and its two element helpers (`el_habs`, `el_su`), plus 4 B (`jsr kpke_keygen_core` + `rts`) in `kpke_keygen`) | 2,275 | 30.2% |
 | alignment pad | 9 | 0.1% |
 
 **7,541 B of the 7,680 B `CRYPTO_OVERLAY` window — 98.2%** (v0.5.1:
@@ -252,7 +266,9 @@ consumer will have to re-plan its overlay** — a P4, consumer-side decision,
 and one the user should have in front of them before this fit verdict is read
 as final.
 
-**BSS: 6,641 B in two segments**, none of it the caller's `ek`/`dk`/`ct` buffers (but see the secrecy note below: both segments hold secret-derived values after a call).
+**BSS: 6,641 B in two segments**, none of it the caller's `ek`/`dk`/`ct`
+buffers (but see the secrecy note below: both segments hold secret-derived
+values after a call).
 `LIB_MLKEM_POLY_BSS` is exactly the eight page-aligned polynomials (4,096 B:
 the two polyvecs, one sampled `A[i][j]` consumed at once — the matrix is
 never stored — and the accumulator), split out at v0.6.0 so a consumer can
@@ -260,7 +276,9 @@ put the 4 KB block somewhere of its own (c64-https: RAM under I/O at
 `$D000`). `LIB_MLKEM_BSS` (2,545 B) holds the
 1,024 B `R1`/`R2` reduction tables, the 200 B Keccak state plus 394 B of
 sponge/rho-pi scratch, 320 B of chunk buffer, 128 B of hash scratch and the
-small stuff, plus page-alignment fill (333 B of the 2,545 in this link; 40 B of it page-aligns `kem_buf`, which kept the cycle counts identical to the unsplit link).
+small stuff, plus page-alignment fill (333 B of the 2,545 in this link; 40 B
+of it page-aligns `kem_buf`, which kept the cycle counts identical to the
+unsplit link).
 v0.5.1 had one 6,641 B segment.
 **`LIB_MLKEM_BSS`'s 2,545 B is this link's, not a constant.** Its alignment
 fill depends on the order ld65 lays out the members' fragments, which for an
@@ -350,7 +368,7 @@ here and in `src/mlkem.inc`.
 | 12 | §8.4: enumerate tables ≥ 256 B that are hot-loop-read | `mlkem_rtab` (1 KB of BSS **built at init**) *is* enumerated | WP1 read "precalculated" as "in the image" and filed no row; WP4 reversed it on the `sqtab` precedent — `sqtab` is also built at init by `mul_tables_init` and §8.1 makes *its* row mandatory. Region `RAM`, like `sqtab`. |
 | 13 | §6.4: one manifest per member set | `mlkem-keccak.a` ships its **own manifest object** (`-D MLKEM_KECCAK_ONLY=1`, `build/kobj`): masks `0/0`, no §8.4 rows, `RESIDENT_BYTES = 2048` | Its member set never reads `sqtab`. `MLKEM_KECCAK_ONLY` in `CONTRACT_DEFINES` is **rejected at parse time** (no target can honor it build-wide). `check-archives` pins both manifests with `od65`; `check-staleness` pins that alternating `lib` / `lib-keccak` on a warm tree rebuilds nothing and overwrites neither. |
 | 14 | §8.3 canonical `ct_mul_8x8` | **not taken**; private `mlkem_`-prefixed 12×12 multiply on `sqtab` directly; bit `$0004` clear in both masks | `docs/contract-p2-alignment.md` §3: the canonical 8×8 body costs ~4 partials + 2 re-bakes per product through `jsr`, ≈ 5–8M cycles per keygen+decaps more than the inline 6+6 split. CT obligations are met privately: every secret-indexed table is page-aligned and the cycle count is pinned input-independent. |
-| 15 | HANDOFF-P2 (Phase 2 rules): library TUs use `LIB_MLKEM_CODE` / `_RODATA` / `_BSS` only | **a fourth segment, `LIB_MLKEM_POLY_BSS`** (4,096 B, `bss`, `align = $100`), required by `mlkem.a`; the eight K-PKE polynomials moved out of `LIB_MLKEM_BSS` (v0.6.0) | A consumer can place the 4 KB of page-aligned polynomials separately from the 2.5 KB of tables and scratch (c64-https: RAM under I/O at `$D000`) instead of needing 6.6 KB in one area. **Consequence: `LIB_MLKEM_ABI_VERSION` 2 → 3** (SPEC §1 "changed memory model", §7), because a v0.5.1-conforming cfg now fails to link. |
+| 15 | HANDOFF-P2 (Phase 2 rules): library TUs use `LIB_MLKEM_CODE` / `_RODATA` / `_BSS` only | **a fourth segment, `LIB_MLKEM_POLY_BSS`** (4,096 B, `bss`, `align = $100`), required by `mlkem.a`; the eight K-PKE polynomials moved out of `LIB_MLKEM_BSS` (v0.6.0) | A consumer can place the 4 KB of page-aligned polynomials separately from the 2.5 KB of tables and scratch (c64-https: RAM under I/O at `$D000`) instead of needing 6.6 KB in one area. **Consequence: `LIB_MLKEM_ABI_VERSION` 2 → 3** (SPEC §1 "changed memory model", §7), because a v0.5.1-conforming cfg now fails to link. This also supersedes `HANDOFF-P2.md`'s "`LIB_MLKEM_ABI_VERSION` … moves only on a breaking export change": the counter moves for a changed memory model too. |
 
 Contract alignment for P2 — the v0.11.0 → v0.13.0 clause diff, the exact
 §8.1 / §8.0 / §6.7 shapes and the items that need the user (a §8.4
@@ -638,8 +656,11 @@ Each archive ships alongside `mlkem.inc` (the public header),
 proves it by linking the archive into a probe image.
 
 **Segments** to place in your cfg — `LIB_MLKEM_CODE`, `LIB_MLKEM_RODATA`,
-`LIB_MLKEM_BSS`, `LIB_MLKEM_POLY_BSS` (v0.6.0; both bss segments are
-required). `LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
+`LIB_MLKEM_BSS`, `LIB_MLKEM_POLY_BSS` (v0.6.0; both bss segments are required
+whenever `mlkem_kem.o` is linked, i.e. for any use of the ML-KEM entry points;
+a Keccak-only consumer, or one pulling only Keccak members from `mlkem.a`, has
+no such segment and omits the line or uses `optional = yes`).
+`LIB_MLKEM_RODATA` **requires `align = $40`** (P2);
 `LIB_MLKEM_BSS` and `LIB_MLKEM_POLY_BSS` each **require `align = $100`** and
 must follow every file-emitting segment of their area; they may live in
 different areas; `cfg/mlkem-example.cfg` states what breaks if any is
@@ -666,22 +687,28 @@ and `mlkem_arg_ct` / `mlkem_arg_key` at `c` and `K`, then `jsr
 mlkem_decaps_seed`. `K` equals `mlkem_decaps` on `KeyGen(d, z).dk`,
 implicit rejection included; `A = 0`; `mlkem_arg_ek`, `_dk` and `_z` are not
 touched. It costs ~50.8M cycles, about KeyGen plus Decaps, so it trades a
-second KeyGen's worth of time for 2,400 B of `dk` storage.
+second KeyGen's worth of time for not holding `dk` between KeyGen and Decaps.
+(`mlkem_keygen` still writes `dk` through `mlkem_arg_dk`, so KeyGen itself
+needs a transient 2,400 B buffer; what the seed entry saves is keeping it
+alive until the ciphertext arrives. Plan the buffer's lifetime, not its
+absence.)
 
 **The handshake cost is above the roadmap budget.** A client that keeps only
 the seed pays KeyGen (to produce `ek`) plus `mlkem_decaps_seed`:
 21,803,250 + 50,794,288 = **72,597,538 cycles**, which is *over* the roadmap's
 40–70M budget. The same client holding `dk` pays 51,057,588 for keygen +
-`mlkem_decaps` on the same inputs. Choose the seed entry only when 2,400 B of
-`dk` matters more than about 21.5M cycles (roughly 22 s at 1 MHz) per handshake.
+`mlkem_decaps` on the same inputs. Choose the seed entry only when not holding
+`dk` across the round trip matters more than about 21.5M cycles (about 21 s at
+1.023 MHz) per handshake.
 
 **Upgrading from v0.5.1 (ABI 3):** the eight polynomials now live in their own
 segment. Add `LIB_MLKEM_POLY_BSS: load = MAIN, type = bss, define = yes, align
 = $100;` to your cfg (any area, e.g. RAM under I/O at `$D000`; it must come
-after every file-emitting segment of its area). A v0.5.1 cfg that does not fails to link with
-`Missing memory area assignment for segment 'LIB_MLKEM_POLY_BSS'`, which is why
-`LIB_MLKEM_ABI_VERSION` moved 2 → 3. A consumer of `mlkem-keccak.a` alone omits the
-line or marks it `optional = yes`.
+after every file-emitting segment of its area). A v0.5.1 cfg that does not
+fails to link with `Missing memory area assignment for segment
+'LIB_MLKEM_POLY_BSS'`, which is why `LIB_MLKEM_ABI_VERSION` moved 2 → 3.
+A consumer of `mlkem-keccak.a` alone omits the line or marks it
+`optional = yes`.
 
 **Zero page** uses contract §6.2's *consumer-assembled* model — the shape the
 spec recommends for new libraries. No archive TU defines a slot; you assemble

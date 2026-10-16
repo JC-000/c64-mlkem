@@ -227,10 +227,13 @@ What the run taught:
 `feat/poly-bss-segment`. Unlike the earlier work packages, the suite they
 target (`tools/test_decaps_seed.py`) and the implementation were written by the
 same agent; the suite landed red first (20954dd) before the implementation
-(f55d9bc). Since then three in-PR adversarial rounds and an independent
-fresh-context adversarial review (2026-10-16) have run the full gate at
-150f421: 55/55 killed, plus 9 extra reviewer mutants of `mlkem_decaps_seed`,
-all killed.
+(f55d9bc). Review since then: the first two in-PR adversarial rounds
+predate 150f421 (the adversarial-review amendments in e75ea3a, and the
+layout review of the `LIB_MLKEM_POLY_BSS` split at 556bf7b, 2026-10-07); the
+third round's fixes are 150f421 itself. At 150f421 the full gate ran 55/55
+killed, and an independent fresh-context adversarial review (2026-10-16)
+added 9 extra mutants of `mlkem_decaps_seed`, all killed. Those 9 were
+throwaway: they are not in the repo and are recorded only in that review.
 None pads: the suite does not depend on RODATA's page phase.
 
 | name | fault | class | localising failure line |
