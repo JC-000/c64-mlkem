@@ -217,7 +217,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
 .PHONY: all clean test test-ref test-vice test-sha3 test-sha3-full test-ntt test-ntt-full \
         test-sampler test-sampler-full test-mlkem test-mlkem-full test-decaps-seed test-decaps-seed-full test-mutants \
         bench bench-sampler bench-kem tables lib lib-keccak \
-        check-manifest check-archives check-staleness check-prefix check-sqtab-guard \
+        check-manifest check-archives check-version check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
         check-deps check-deps-rebuild check-deps-selftest \
         vectors help rig rig-full rig-turbo
@@ -332,6 +332,18 @@ check-archives: lib lib-keccak
 	[ $$fail -eq 0 ] && echo "check-archives: OK (no driver objects in any archive)"
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE) 1 1 7680 3
 	@$(TOOLS_DIR)/check_archive_manifest.sh $(ARCHIVE_KECCAK) 0 0 2048 0
+
+# LIB_MLKEM_ABI_VERSION as the build must ship it. It moves only per SPEC §7
+# ("a consumer conforming to the previously documented contract can be broken
+# by the change"; §1 counts a changed memory model), never by habit: 2 -> 3 at
+# v0.6.0 for the new required LIB_MLKEM_POLY_BSS segment. Change it here and in
+# src/lib_version.s together, deliberately.
+EXPECTED_ABI = 3
+
+# The four §1 equates in both archives against VERSION / EXPECTED_ABI, the
+# three-vs-four-segment link legs, and proof the check fires on a wrong ABI.
+check-version: $(PRG) lib lib-keccak
+	@$(TOOLS_DIR)/check_version.sh $(ARCHIVE) $(ARCHIVE_KECCAK) $(EXPECTED_ABI) "$(DRIVER_OBJS)" "$(LIB_PROBE_PULL)"
 
 # Repo-local configuration invalidation, both legs. Leg 1 alone is not a
 # test: a guard that has degraded to an unconditional rebuild passes it. Leg 2
@@ -507,7 +519,7 @@ test-decaps-seed-full: $(PRG)
 # The VICE suites run first on the PRG `make` just built; the two checks
 # that wipe and rebuild build/ (check-staleness, check-sqtab-guard) run after
 # them, and check-prefix last (it rebuilds the archives through a sub-make).
-test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
+test: test-ref test-vice test-sha3 test-ntt test-sampler test-mlkem check-manifest check-archives check-version check-staleness check-sqtab-guard check-prefix check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest check-deps check-deps-rebuild check-deps-selftest
 	@echo "test: OK"
 
 # Cycle-exact measurement. Calibrates the CIA1 TA+TB instrument against a
@@ -591,6 +603,7 @@ help:
 	@echo "make check-manifest-selftest  check_manifest.py + test: wiring vs doctored fixtures"
 	@echo "make check-precalc-selftest   check_precalc.sh vs a throwaway contract repo"
 	@echo "make check-archives  no driver objects (§6.1); per-archive manifest values (§6.4)"
+	@echo "make check-version  the four §1 equates in both archives vs VERSION / EXPECTED_ABI; 3-segment cfg fails, 4-segment links; fires on a wrong ABI"
 	@echo "make check-staleness config invalidation, both legs, on the ZP, sqtab-base and Keccak-only knobs; the rejected knobs fire"
 	@echo "make check-sqtab-guard  the sqtab image guard fires on a deliberate overrun"
 	@echo "make check-prefix every archive export under a permitted prefix"
