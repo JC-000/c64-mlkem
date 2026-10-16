@@ -23,10 +23,10 @@
 ;
 ; LIB_MLKEM_ABI_VERSION is a monotonic generation counter for the exported
 ; surface (§1, v0.7.5 semantics): starts at 1, increments on any breaking
-; export change or changed memory model, DELIBERATELY INDEPENDENT of MAJOR. §7 permits breaking
-; changes on MINOR bumps while pre-1.0, so MAJOR stays 0 and carries no
-; signal; a consumer gating on MINOR would never fire for exactly the changes
-; the gate exists to catch.
+; export change or changed memory model, DELIBERATELY INDEPENDENT of MAJOR.
+; §7 permits breaking changes on MINOR bumps while pre-1.0, so MAJOR stays 0
+; and carries no signal; a consumer gating on MINOR would never fire for
+; exactly the changes the gate exists to catch.
 ;
 ; History:
 ;   1  v0.1.0  initial surface (P1 scaffold; no crypto exports yet)
@@ -49,6 +49,8 @@
 ;              surface is byte-identical (od65 on both archives against the
 ;              v0.4.0 header). Nothing removed or renamed, no calling
 ;              convention touched: the counter does not move.
+;   2  v0.5.1  P3 Lane A, implementation only: no export added, removed or
+;              renamed, no calling convention touched; the counter holds.
 ;   3  v0.6.0  The EXPORT surface is additive (one new export,
 ;              mlkem_decaps_seed: Decaps from the 64 B KeyGen seed d || z, no
 ;              dk/ek buffer; every existing export and calling convention is
@@ -57,12 +59,19 @@
 ;              (a changed memory model). A consumer cfg that conformed to
 ;              v0.5.1 and declares only CODE/RODATA/BSS now fails to link
 ;              ("Missing memory area assignment for segment
-;              'LIB_MLKEM_POLY_BSS'"). SPEC §1 (line 39) counts "a changed
-;              memory model" and §7 (line 251) moves the counter when a
-;              consumer conforming to the previously documented contract can
-;              be broken by the change, so the counter moves 2 -> 3. Fix in
-;              the consumer: add a LIB_MLKEM_POLY_BSS line (type = bss,
-;              align = $100) to its cfg; see cfg/mlkem-example.cfg.
+;              'LIB_MLKEM_POLY_BSS'"). SPEC §1
+;              counts "a changed memory model" among breaking changes, and
+;              §7 ("Whether the counter moves turns on what the code does")
+;              moves it "when a consumer conforming to the previously
+;              documented contract can be broken by the change", so the
+;              counter moves 2 -> 3. §7 adds that such a change is not
+;              "subject to the deprecation cycle", so no one-MINOR-release
+;              deprecation applies; the contract's ADOPTERS.md notes that
+;              c64-mlkem's conformance holds only while no released consumer
+;              pins a tag. Fix in the consumer: add a LIB_MLKEM_POLY_BSS line
+;              (type = bss, align = $100) to its cfg; see
+;              cfg/mlkem-example.cfg. Consumers gate by equality on the
+;              generation (.assert LIB_MLKEM_ABI_VERSION = 3, lderror, ...).
 ; =============================================================================
 
 LIB_MLKEM_VERSION_MAJOR = 0

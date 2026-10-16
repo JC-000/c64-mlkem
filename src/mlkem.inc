@@ -38,8 +38,11 @@
 ; VERSION GATE (contract §1) — .assert/lderror, never .if/.error:
 ;     .import LIB_MLKEM_VERSION_MAJOR, LIB_MLKEM_VERSION_MINOR
 ;     .assert (LIB_MLKEM_VERSION_MAJOR > 0) .or (LIB_MLKEM_VERSION_MINOR >= 1), lderror, "needs c64-mlkem v0.1+"
-;     (mlkem_decaps_seed needs MINOR >= 6, and LIB_MLKEM_ABI_VERSION >= 3 for
-;     the LIB_MLKEM_POLY_BSS segment: .import LIB_MLKEM_ABI_VERSION)
+;     mlkem_decaps_seed needs MINOR >= 6. The ABI counter is a generation
+;     counter, gated by equality (SPEC §1/§7), not by >=; this release is
+;     generation 3 (four segments, LIB_MLKEM_POLY_BSS required):
+;     .import LIB_MLKEM_ABI_VERSION
+;     .assert LIB_MLKEM_ABI_VERSION = 3, lderror, "c64-mlkem ABI 3 (four segments) required"
 ;
 ; FOOTPRINT GATE (contract §5):
 ;     .import LIB_MLKEM_RESIDENT_BYTES, LIB_MLKEM_COLD_BYTES
@@ -206,9 +209,14 @@ MLKEM_INC_INCLUDED = 1
 ; takes as seed and z, and K is bit-identical to mlkem_decaps(dk, ct) with
 ; dk = KeyGen(d, z).dk, implicit rejection included. It re-runs K-PKE.KeyGen
 ; and recomputes H(ek) itself, so no dk (2,400 B) or ek (1,184 B) buffer
-; exists anywhere: mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are neither read
-; nor written, and it adds no BSS. Same constant-time compare and select as
-; mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps less 0.26M.
+; exists during the call: mlkem_arg_ek, mlkem_arg_dk and mlkem_arg_z are
+; neither read nor written, and it adds no BSS. Same constant-time compare and select as
+; mlkem_decaps. Cost: ~50.8M cycles, about KeyGen + Decaps less 0.26M. A
+; client that keeps only the seed still runs mlkem_keygen to send ek, so its
+; handshake is KeyGen + this = 21,803,250 + 50,794,288 = 72,597,538 cycles,
+; OVER the 40-70M roadmap budget (51,057,588 holding dk: +21,539,950). The
+; saving is not holding dk between KeyGen and Decaps; mlkem_keygen still
+; writes dk through mlkem_arg_dk, so KeyGen needs a transient 2,400 B buffer.
 ;
 ; Clobbers A/X/Y, every mlkem_zp_* slot, mlkem_sponge_len, keccak_state and
 ; all library BSS. Requires mul_tables_init + mlkem_arith_init once at boot.
