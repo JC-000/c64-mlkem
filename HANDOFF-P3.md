@@ -157,10 +157,15 @@ Session memory (decisions and open items) is mirrored in the Claude memory dir:
   assignment for segment 'LIB_MLKEM_POLY_BSS'`). SPEC §1 counts "a changed
   memory model" and §7 moves the counter "when a consumer conforming to the
   previously documented contract can be broken by the change" (read against
-  contract main, 1.2.3; the clause is not "subject to the deprecation
-  cycle"). Consumer fix: add the `LIB_MLKEM_POLY_BSS` line to its cfg; a
-  Keccak-only consumer omits it or marks it `optional = yes`. Gate by
-  equality (`.assert LIB_MLKEM_ABI_VERSION = 3`).
+  contract main, 1.2.3). A changed memory model is also breaking under §7's
+  first bullet, so its "one-MINOR-release deprecation cycle" nominally
+  applies; it was not run, because no released consumer pins a c64-mlkem tag
+  (contract `consumers.md` lists none; c64-https wiring is P4). SPEC grants
+  that zero-consumer reasoning explicitly only for bare exports (§1), so this
+  is a divergence (README row 16). Consumer fix: add the
+  `LIB_MLKEM_POLY_BSS` line to its cfg; a Keccak-only consumer omits it or
+  marks it `optional = yes`. Gate by equality
+  (`.assert LIB_MLKEM_ABI_VERSION = 3`).
 - `make check-version` (in `make test`) pins the four version equates in both
   archives, the three-segment-fails / four-segment-links legs, and proves it
   fires on a wrong ABI. `EXPECTED_ABI` in the Makefile moves only per SPEC §7.
@@ -172,16 +177,18 @@ A client that keeps only the seed pays KeyGen + `mlkem_decaps_seed` =
 40–70M budget (`make bench-kem` prints the line). Holding `dk` it pays
 51,057,588: the seed path costs +21,539,950 cycles (about 21 s at 1.023 MHz)
 per handshake. What it saves is holding `dk` between KeyGen and Decaps;
-`mlkem_keygen` still writes `dk` through `mlkem_arg_dk`, so KeyGen still needs a
-transient 2,400 B buffer. That matters for the c64-https overlay plan.
+`mlkem_keygen` still writes `dk` through `mlkem_arg_dk`, so KeyGen still
+needs a transient 2,400 B buffer. That matters for the c64-https overlay plan.
 
 ### Review history
 The suite landed red first (20954dd), then the implementation (f55d9bc), by
-the same agent. In-PR adversarial rounds: the first two predate 150f421
-(e75ea3a, and the layout review at 556bf7b, 2026-10-07); the third round's
-fixes are 150f421. At 150f421 the full gate ran 55/55 killed, and an
-independent fresh-context review (2026-10-16) added 9 throwaway mutants of
-`mlkem_decaps_seed`, all killed (not in the repo). A further review round
+the same agent. PR #10's description records three adversarial rounds
+(the commit messages do not say which round each commit belongs to).
+Commits that came out of review: e75ea3a ("adversarial-review amendments"),
+556bf7b ("The layout review's 2-way split") and 150f421 ("review fixes").
+At 150f421 the full gate ran 55/55 killed, and an independent fresh-context
+review (2026-10-16) added 9 throwaway mutants of `mlkem_decaps_seed`, all
+killed (not in the repo). A further review round
 (this session) led to the pre-release fixes: ABI 3, divergence 15, the
 handshake cost, `check-version`, the image-guard form and doc corrections.
 Those fix commits go up as part of PR #10 before the merge.
@@ -193,7 +200,9 @@ Those fix commits go up as part of PR #10 before the merge.
   `test_decaps_seed.py`), not across keys.
 - **`LIB_MLKEM_POLY_BSS` at `$D000` is verified at link only**, never run
   (the `$01` banking around every ML-KEM call is the consumer's).
-- **Upstream `c64-lib-contract` `ADOPTERS.md` (line 32) still says
+- **The user may prefer to raise the waived deprecation cycle with the
+  contract** (README row 16). That is a decision for them, not for this repo.
+- **Upstream `c64-lib-contract` `adopters.md` (line 32) still says
   `LIB_MLKEM_ABI_VERSION = 2`** and needs updating there. Do not touch the
   contract repo from here. The adopters row also still cites v0.5.0; the
   2026-09-24 handoff lists that as "Open, not started" (outward-facing PR,

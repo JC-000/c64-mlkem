@@ -47,8 +47,9 @@ below). No ML-DSA ever. No REU anywhere.
    adversary mutants were added on `hw/rig-validation`, the seven `seed-*`
    with v0.6.0). All constant-time claims are
    measured cycle pins, not assertions.
-5. **Fifteen SPEC/brief divergences** (P1 1–6, P2 7–15; 15 is v0.6.0's
-   `LIB_MLKEM_POLY_BSS` fourth segment), tabulated in README.
+5. **Sixteen SPEC/brief divergences** (P1 1–6, P2 7–14, v0.6.0 15–16: the
+   `LIB_MLKEM_POLY_BSS` fourth segment and the waived deprecation cycle for
+   it), tabulated in README.
 6. **v0.6.0 (ABI 3: additive exports, but a new required segment):
    `mlkem_decaps_seed`** — Decaps from the 64 B
    seed `d‖z`, no `dk`/`ek` buffer, **50,794,288 cycles** (keygen + decaps on
@@ -61,7 +62,8 @@ below). No ML-DSA ever. No REU anywhere.
    0–63 B. This probe link: gap 10 → 129 B; CODE at a page-aligned start:
    gap 12 → 127 B. `make check-manifest` prints all three. The 7,714 B test build is no longer covered. Its link also
    moves NTT / INTT / basemul by +64 / +64 / +128 (RODATA page phase) and
-   KeyGen by +12 (the shared `kpke_keygen_core` call); items 1–5 above are
+   KeyGen by +1,548 in total (+12 for the shared `kpke_keygen_core` call,
+   plus 6 NTT × 64 and 9 basemul × 128 of that page phase); items 1–5 above are
    v0.5.1's unless they say otherwise. 55 mutants (seven `seed-*`).
    `make test-mlkem` runs `test_decaps_seed.py` after `test_mlkem.py`: the
    seed entry jumps into `encrypt_body`, `kpke_decrypt` and `mlkem_decaps`
@@ -186,10 +188,15 @@ has the exact §8.1 / §8.0 shapes it took. Prefix `<X>` = `MLKEM`, shortname
   documented contract can be broken (SPEC §1: a removed or renamed symbol, a
   changed calling convention, "a changed memory model"; §7: "Whether the
   counter moves turns on what the code does") — not only on export-list
-  changes. §7 also says such a change is not "subject to the deprecation
-  cycle" (checked against contract main, 1.2.3). `make check-version` pins the
-  value (`EXPECTED_ABI` in the Makefile) and the segment model. It went
-  1 → 2 at v0.4.0 for the bare-export removal and 2 → 3 at v0.6.0: the export surface was additive, but the new required
+  changes. A changed memory model is also breaking under §7's first bullet, so
+  its "one-MINOR-release deprecation cycle" nominally applies; v0.6.0 did not
+  run it because no released consumer pins a c64-mlkem tag (contract
+  consumers.md lists none; c64-https wiring is P4). SPEC grants that
+  zero-consumer reasoning explicitly only for bare exports (§1), so this is a
+  divergence (README row 16). `make check-version` pins the value
+  (`EXPECTED_ABI` in the Makefile) and the segment model. It went 1 → 2 at
+  v0.4.0 for the bare-export removal and 2 → 3 at v0.6.0: the export surface
+  was additive, but the new required
   segment `LIB_MLKEM_POLY_BSS` breaks a v0.5.1 consumer cfg at link. It did NOT
   move for v0.2.0 (additive) or v0.3.0 (implementation-only).
 - `src/lib_manifest.s` carries the §5 aggregates. Footprint equates are

@@ -227,10 +227,10 @@ What the run taught:
 `feat/poly-bss-segment`. Unlike the earlier work packages, the suite they
 target (`tools/test_decaps_seed.py`) and the implementation were written by the
 same agent; the suite landed red first (20954dd) before the implementation
-(f55d9bc). Review since then: the first two in-PR adversarial rounds
-predate 150f421 (the adversarial-review amendments in e75ea3a, and the
-layout review of the `LIB_MLKEM_POLY_BSS` split at 556bf7b, 2026-10-07); the
-third round's fixes are 150f421 itself. At 150f421 the full gate ran 55/55
+(f55d9bc). PR #10's description records three adversarial rounds; commits
+that came out of review are e75ea3a ("adversarial-review amendments"),
+556bf7b ("The layout review's 2-way split") and 150f421 ("review fixes").
+At 150f421 the full gate ran 55/55
 killed, and an independent fresh-context adversarial review (2026-10-16)
 added 9 extra mutants of `mlkem_decaps_seed`, all killed. Those 9 were
 throwaway: they are not in the repo and are recorded only in that review.
