@@ -10,7 +10,7 @@ user wants work run, read the latest SESSION HANDOFF at the end of
 P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
 landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
 (`make rig`). v0.6.0 adds `mlkem_decaps_seed` and the `LIB_MLKEM_POLY_BSS`
-segment (ABI 3; hardware validation of the new entry is still open). No
+segment (ABI 3); the rigs run the new entry on the C64U (see Tests). No
 changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
@@ -334,6 +334,44 @@ clean, and a second make runs nothing) are the regression guards.
   the gate: `wp3-cmp-mismatch-timing` (rig_bench T1: tampered decaps +2 /
   +2,172 cycles over valid) and `wp3-cmp-acc-reset` (rig_kat onebit: the
   valid key K' returned for a one-bit c1 tamper).
+  **Device choice.** The rigs run on whatever `U64_HOST` names: the bench
+  U64E (10.43.23.81, the default) or the C64 Ultimate (C64U, fw 1.1.0,
+  10.43.23.26; use the guarded `make rig-c64u` family below).
+  Use `rig-c64u` / `rig-c64u-full` / `rig-c64u-turbo` for the C64U: they set
+  `RIG_EXPECT_UID=5d2518`, checked from the harness' local alias map
+  (devices.toml) **before** the DeviceLock is taken (a `C64U_HOST` that is
+  really the U64E is refused without contacting it), and
+  `RIG_EXPECT_PRODUCT="C64 Ultimate"`, an exact match on the info call
+  afterwards. Either variable set but empty is an error. The uid guard needs
+  `c64-test-harness` >= 0.13.0 (`device_aliases`), a missing or broken
+  alias file refuses to run, and an unlisted host is refused. `make rig
+  U64_HOST=<ip>` is unguarded.
+  **Expected counts live in one place, `tools/kem_expect.py`.** `make
+  bench-kem` FAILS when a VICE count differs from it, and `rig_bench` imports
+  the same table (it had drifted to v0.5.1 numbers unnoticed). Move a count
+  there on purpose, never to quiet a failure. (A scripted perturb-then-rerun
+  of that file needs `PYTHONDONTWRITEBYTECODE=1` or a cleared
+  `tools/__pycache__`: a same-size edit within one second can be served from
+  a stale `.pyc`.)
+  **`mlkem_decaps_seed` on hardware (C64U, 1 MHz, 2026-10-16).**
+  `rig_kat --only seed` (84 checks: [kgdec] / [acvpct] / [equiv] of
+  `test_decaps_seed.py`, unchanged; the seed group took 807 s, the default
+  run ~23 min) passes. `rig_bench` measures `mlkem_decaps_seed` =
+  **50,794,288**, equal to VICE, identical for the valid,
+  bit-0-of-byte-0 and bit-7-of-byte-1087 ciphertexts; the seed-only
+  handshake KeyGen + `mlkem_decaps_seed` is the sum of two gated counts,
+  21,803,250 + 50,794,288 = **72,597,538** (OVER the 40–70M budget). On the
+  same link KeyGen 21,803,250, Encaps 24,882,439 and Decaps 29,600,503 equal
+  VICE. `rig_bench` aims `mlkem_arg_ek/_dk/_z` at junk for the seed legs, so
+  an entry that reads one of them is wrong there. The legs were proven on the
+  C64U against gate mutants: `seed-z-is-d` (rig_kat seed: 7 failures, every
+  rejection-path case; the valid-ct cases still pass), `seed-reject-skips-j`
+  (rig_bench: valid 47,701,547, tampered 50,794,295, a 3,092,748-cycle gap
+  named as a CT failure) and `seed-z-from-arg` (rig_bench: both tampered-ct
+  outputs wrong, 3 of 3 runs each, exit 1; that mutant also costs -4 cycles,
+  which the count pin catches at 1 MHz, and the decoys make the output check
+  catch it independent of timing, e.g. at turbo where no count is pinned). The poll probe on the C64U read +110 / +218 cycles per
+  Keccak x8 (information only).
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.

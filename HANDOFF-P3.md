@@ -199,11 +199,16 @@ to the pre-release fixes: ABI 3, divergences 15–16, the handshake cost,
 corrections. Round 3's fixes: the guard must cover bss-only areas too, the
 guard text in `mlkem.inc`, SPEC citations (§1/§8.4 for the zero-consumer
 carve-out), RODATA align wording, and hardening of `check_version.sh`.
-Those fix commits go up as part of PR #10 before the merge.
+Those fix commits went up as part of PR #10, merged as a00444a; v0.6.0 is
+released.
 
 ### Open items
-- **No hardware rig covers `mlkem_decaps_seed`** (`rig_*.py` predate it).
-  VICE only.
+- ~~No hardware rig covers `mlkem_decaps_seed`~~ — closed (C64U, 1 MHz):
+  `rig_kat --only seed` passes (84 checks); `rig_bench` gives 50,794,288 for
+  the entry (== VICE, identical for valid / bit-0 / bit-7 ciphertexts) and a
+  seed-only handshake sum of 72,597,538 (OVER the 40–70M budget); proven
+  against `seed-z-is-d`, `seed-reject-skips-j` and `seed-z-from-arg`.
+  Details in CLAUDE.md "Tests"; expected counts in `tools/kem_expect.py`.
 - **Constant-time is measured on one key only** (the cycle pins in
   `test_decaps_seed.py`), not across keys.
 - **`LIB_MLKEM_POLY_BSS` at `$D000` is verified at link only**, never run
@@ -218,7 +223,7 @@ Those fix commits go up as part of PR #10 before the merge.
 - Still deferred by explicit user decision: the c64-https overlay fit (P4).
 
 ### Next step
-Merge PR #10, tag v0.6.0 on the merge, then c64-https P4 wiring (add the
+PR #10 is merged and v0.6.0 is released. Next is c64-https P4 wiring (add the
 `LIB_MLKEM_POLY_BSS` line, re-plan the overlay).
 
 ### How work is run

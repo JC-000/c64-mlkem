@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rig_common.py — the hardware half of the rig_*.py suites (U64E).
+"""rig_common.py — the hardware half of the rig_*.py suites (U64E or C64U).
 
 Imported by tools/rig_kat.py and tools/rig_bench.py; not a runnable rig
 itself. Everything device-facing lives here so the two rigs cannot drift apart
@@ -191,8 +191,67 @@ def load_labels(scratch_lo, scratch_hi):
     return labels
 
 
+def env_expect(name):
+    """An expectation from the environment: None if unset; a value that is
+    set but empty / whitespace is a configuration error, not 'off'."""
+    v = os.environ.get(name)
+    if v is None:
+        return None
+    v = v.strip()
+    if not v:
+        raise RigError(f"{name} is set but empty; unset it or give it a value")
+    return v
+
+
+def check_host_uid(host, expect_uid):
+    """Refuse `host` unless the harness' alias map (devices.toml, read
+    locally, no device contact) lists it under unique_id `expect_uid`. A
+    spelling the map does not list cannot be verified before locking, so it
+    is refused too. No-op when expect_uid is None."""
+    if expect_uid is None:
+        return
+    try:
+        from c64_test_harness.backends.device_aliases import (
+            DeviceAliasConfigError, aliases_file_path)
+        from c64_test_harness.backends.device_lock import normalize_device_host
+    except ImportError as e:
+        raise RigError(f"RIG_EXPECT_UID needs c64-test-harness >= 0.13.0 (the "
+                       f"device alias map); import failed: {e}; refusing to run")
+    # normalize_device_host folds a listed spelling to its canonical
+    # 'uid-<id>' key and returns any other spelling unchanged.
+    try:
+        key = normalize_device_host(host)
+    except DeviceAliasConfigError as e:
+        raise RigError(f"harness device alias configuration is broken ({e}); "
+                       f"cannot verify {host} as unique_id {expect_uid!r}; "
+                       f"refusing to run")
+    uid = key[len("uid-"):] if key.startswith("uid-") else None
+    if uid is None:
+        path = aliases_file_path()
+        why = ("the alias file " + str(path) + (" is missing" if not path.exists()
+               else " does not list it"))
+        raise RigError(f"{host} is not in the harness device alias map ({why}; "
+                       f"set C64_DEVICE_ALIASES_FILE to relocate it), so it cannot "
+                       f"be verified as unique_id {expect_uid!r} before locking; "
+                       f"refusing to run")
+    if uid.lower() != expect_uid.lower():
+        raise RigError(f"{host} is device {uid!r} in the harness alias map, "
+                       f"expected {expect_uid!r}; refusing to run")
+
+
+def check_product(host, info, expect_product):
+    """Exact match of the device's own info 'product' (after acquiring the
+    device: a second line of defence behind check_host_uid)."""
+    if expect_product is None:
+        return
+    got = info.get("product")
+    if got != expect_product:
+        raise RigError(f"{host} reports product {got!r}, expected "
+                       f"{expect_product!r}; refusing to run")
+
+
 class Rig:
-    """One locked U64E session with build/mlkem.prg running under the
+    """One locked Ultimate session (U64E or C64U, whichever U64_HOST names) with build/mlkem.prg running under the
     dispatcher. Use as a context manager.
 
     mhz=1 is stock speed (and the measurement environment is checked);
@@ -206,12 +265,20 @@ class Rig:
         self.lock_timeout = lock_timeout
         self.host = os.environ.get("U64_HOST")
         if not self.host:
-            raise RigError("U64_HOST is not set (the bench U64E is 10.43.23.81)")
+            raise RigError("U64_HOST is not set (the bench U64E is 10.43.23.81, the C64 Ultimate 10.43.23.26)")
         self._mgr = self._ctx = self.target = self.t = None
         self.snap = None
         self.info = {}
         self._thunk = None
         self.restore_failed = False
+        # RIG_EXPECT_PRODUCT (e.g. "C64 Ultimate", set by `make rig-c64u`):
+        # refuse to drive a device whose info call names another product.
+        self.expect_product = env_expect("RIG_EXPECT_PRODUCT")
+        # RIG_EXPECT_UID is checked HERE, before create_manager / instance()
+        # take the DeviceLock (and, on a U64E, may apply the factory config
+        # baseline): the harness' offline alias map resolves host -> unique_id
+        # without contacting the device.
+        check_host_uid(self.host, env_expect("RIG_EXPECT_UID"))
 
     # --- session -----------------------------------------------------------
 
@@ -225,8 +292,9 @@ class Rig:
             self.t = self.target.transport
             client = self.target.client
             self.info = client.get_info()
+            check_product(self.host, self.info, self.expect_product)
             self.snap = snapshot_state(client)
-            print(f"U64: {self.info.get('product')} fw {self.info.get('firmware_version')} "
+            print(f"Device {self.host}: {self.info.get('product')} fw {self.info.get('firmware_version')} "
                   f"fpga {self.info.get('fpga_version')} core {self.info.get('core_version')}")
             print(f"  speed state at entry: CPU Speed={self.snap.cpu_speed!r} "
                   f"Turbo Control={self.snap.turbo_control!r} "
