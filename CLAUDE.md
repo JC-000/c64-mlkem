@@ -10,7 +10,7 @@ user wants work run, read the latest SESSION HANDOFF at the end of
 P1 and P2 are both complete (v0.5.0); the P3 Lane A optimisation pass is
 landed (v0.5.1, implementation-only, ABI 2), and validated on the U64E
 (`make rig`). v0.6.0 adds `mlkem_decaps_seed` and the `LIB_MLKEM_POLY_BSS`
-segment (ABI 3; hardware validation of the new entry is still open). No
+segment (ABI 3); the rigs run the new entry on the C64U (see Tests). No
 changes to `c64-https` (consumer
 wiring is Phase 4, consumer-side — including re-planning its overlay, see
 below). No ML-DSA ever. No REU anywhere.
@@ -334,6 +334,23 @@ clean, and a second make runs nothing) are the regression guards.
   the gate: `wp3-cmp-mismatch-timing` (rig_bench T1: tampered decaps +2 /
   +2,172 cycles over valid) and `wp3-cmp-acc-reset` (rig_kat onebit: the
   valid key K' returned for a one-bit c1 tamper).
+  **Device choice.** The rigs run on whatever `U64_HOST` names: the bench
+  U64E (10.43.23.81, the default) or the C64 Ultimate (C64U, fw 1.1.0,
+  10.43.23.26; `make rig-c64u`, or `make rig U64_HOST=10.43.23.26`).
+  **`mlkem_decaps_seed` on hardware (C64U, 1 MHz, 2026-10-16).**
+  `rig_kat --only seed` (84 checks, ~13 min at default depth: [kgdec] /
+  [acvpct] / [equiv] of `test_decaps_seed.py`, unchanged) passes; `rig_bench`
+  measures `mlkem_decaps_seed` = **50,794,288**, equal to VICE, identical for
+  the valid, bit-0-of-byte-0 and bit-7-of-byte-1087 ciphertexts, and the
+  seed-only handshake KeyGen + `mlkem_decaps_seed` = 21,803,250 + 50,794,288
+  = **72,597,538** (OVER the 40–70M budget), also equal to VICE. On the same
+  link KeyGen 21,803,250, Encaps 24,882,439 and Decaps 29,600,503 equal VICE
+  (rig_bench's VICE table had still held the v0.5.1 numbers). The legs were
+  proven on the C64U against two gate mutants: `seed-z-is-d` (rig_kat seed:
+  7 failures, every rejection-path case; the valid-ct cases still pass) and
+  `seed-reject-skips-j` (rig_bench: valid 47,701,547, tampered 50,794,295, a
+  3,092,748-cycle gap named as a CT failure). The poll-perturbation probe on
+  the C64U read +110 / +218 cycles per Keccak x8 (information only).
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.
