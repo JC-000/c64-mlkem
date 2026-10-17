@@ -220,7 +220,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         check-manifest check-archives check-version check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
         check-deps check-deps-rebuild check-deps-selftest \
-        vectors help rig rig-full rig-turbo
+        vectors help rig rig-c64u rig-full rig-turbo
 
 all: $(PRG)
 
@@ -538,7 +538,7 @@ bench-sampler: $(PRG)
 bench-kem: $(PRG)
 	@C64_SKIP_BUILD=1 $(PYTHON) $(TOOLS_DIR)/bench_kem.py
 
-# --- hardware rigs (U64E; NOT part of `test` -- CI has no hardware) --------
+# --- hardware rigs (U64E or C64U; NOT part of `test` -- CI has no hardware) --------
 # tools/rig_*.py drive the real machine through the harness DeviceLock and
 # the write_bytes/read_bytes funnel (tools/rig_common.py). `rig` is the default
 # depth at stock 1 MHz: KATs, then the cycle counts, which must equal VICE's
@@ -551,12 +551,21 @@ bench-kem: $(PRG)
 # the entry speed state is snapshotted and restored. The rigs were proven
 # against the gate's wp3-cmp-mismatch-timing (rig_bench fails T1) and
 # wp3-cmp-acc-reset (rig_kat onebit fails) mutants on the U64E at 1 MHz.
+# The rigs run on whichever Ultimate U64_HOST names; the default is the bench
+# U64E. The C64 Ultimate (C64U, fw 1.1.0) is C64U_HOST: `make rig-c64u`, or
+# `make rig U64_HOST=10.43.23.26` (rig-full / rig-turbo take it the same way).
+# They now also cover mlkem_decaps_seed: rig_kat's `seed` group and rig_bench's
+# seed legs (count == VICE, constant-time pin, seed-only handshake line).
 U64_HOST ?= 10.43.23.81
+C64U_HOST ?= 10.43.23.26
 RIG_MHZ ?= 48
 
 rig: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
+
+rig-c64u: $(PRG)
+	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST)
 
 rig-full: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full
@@ -594,9 +603,10 @@ help:
 	@echo "make bench        cycle-exact Keccak-f[1600] measurement"
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
-	@echo "make rig         U64E hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=...)"
-	@echo "make rig-full    U64E hardware: rig_kat --full at 1 MHz, then the cycle counts"
-	@echo "make rig-turbo   U64E hardware: every vector at RIG_MHZ turbo (default 48)"
+	@echo "make rig         Ultimate hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=..., default the U64E)"
+	@echo "make rig-c64u    the same on the C64 Ultimate (C64U_HOST, default 10.43.23.26)"
+	@echo "make rig-full    Ultimate hardware: rig_kat --full at 1 MHz, then the cycle counts"
+	@echo "make rig-turbo   Ultimate hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"
 	@echo "make check-manifest  §5 footprint equates >= placed span, both archives"
 	@echo "make check-precalc   src/precalc_table.inc == the contract's at CONTRACT_PRECALC_REF (§8.4)"
