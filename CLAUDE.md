@@ -337,20 +337,31 @@ clean, and a second make runs nothing) are the regression guards.
   **Device choice.** The rigs run on whatever `U64_HOST` names: the bench
   U64E (10.43.23.81, the default) or the C64 Ultimate (C64U, fw 1.1.0,
   10.43.23.26; `make rig-c64u`, or `make rig U64_HOST=10.43.23.26`).
+  `rig-c64u` also sets `RIG_EXPECT_PRODUCT="C64 Ultimate"`, and the rig
+  refuses a device whose info call reports another product (set it yourself
+  when pointing `U64_HOST` anywhere else).
+  **Expected counts live in one place, `tools/kem_expect.py`.** `make
+  bench-kem` FAILS when a VICE count differs from it, and `rig_bench` imports
+  the same table (it had drifted to v0.5.1 numbers unnoticed). Move a count
+  there on purpose, never to quiet a failure.
   **`mlkem_decaps_seed` on hardware (C64U, 1 MHz, 2026-10-16).**
-  `rig_kat --only seed` (84 checks, ~13 min at default depth: [kgdec] /
-  [acvpct] / [equiv] of `test_decaps_seed.py`, unchanged) passes; `rig_bench`
-  measures `mlkem_decaps_seed` = **50,794,288**, equal to VICE, identical for
-  the valid, bit-0-of-byte-0 and bit-7-of-byte-1087 ciphertexts, and the
-  seed-only handshake KeyGen + `mlkem_decaps_seed` = 21,803,250 + 50,794,288
-  = **72,597,538** (OVER the 40–70M budget), also equal to VICE. On the same
-  link KeyGen 21,803,250, Encaps 24,882,439 and Decaps 29,600,503 equal VICE
-  (rig_bench's VICE table had still held the v0.5.1 numbers). The legs were
-  proven on the C64U against two gate mutants: `seed-z-is-d` (rig_kat seed:
-  7 failures, every rejection-path case; the valid-ct cases still pass) and
-  `seed-reject-skips-j` (rig_bench: valid 47,701,547, tampered 50,794,295, a
-  3,092,748-cycle gap named as a CT failure). The poll-perturbation probe on
-  the C64U read +110 / +218 cycles per Keccak x8 (information only).
+  `rig_kat --only seed` (84 checks: [kgdec] / [acvpct] / [equiv] of
+  `test_decaps_seed.py`, unchanged; the seed group took 807 s, the default
+  run ~23 min) passes. `rig_bench` measures `mlkem_decaps_seed` =
+  **50,794,288**, equal to VICE, identical for the valid,
+  bit-0-of-byte-0 and bit-7-of-byte-1087 ciphertexts; the seed-only
+  handshake KeyGen + `mlkem_decaps_seed` is the sum of two gated counts,
+  21,803,250 + 50,794,288 = **72,597,538** (OVER the 40–70M budget). On the
+  same link KeyGen 21,803,250, Encaps 24,882,439 and Decaps 29,600,503 equal
+  VICE. `rig_bench` aims `mlkem_arg_ek/_dk/_z` at junk for the seed legs, so
+  an entry that reads one of them is wrong there. The legs were proven on the
+  C64U against gate mutants: `seed-z-is-d` (rig_kat seed: 7 failures, every
+  rejection-path case; the valid-ct cases still pass), `seed-reject-skips-j`
+  (rig_bench: valid 47,701,547, tampered 50,794,295, a 3,092,748-cycle gap
+  named as a CT failure) and `seed-z-from-arg` (rig_bench: both tampered-ct
+  outputs wrong, 3 of 3 runs each, exit 1; with the pointers left on the real
+  z it would have survived). The poll probe on the C64U read +110 / +218 cycles per
+  Keccak x8 (information only).
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never
   hardcode.

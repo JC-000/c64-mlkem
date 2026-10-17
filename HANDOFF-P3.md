@@ -202,12 +202,12 @@ carve-out), RODATA align wording, and hardening of `check_version.sh`.
 Those fix commits go up as part of PR #10 before the merge.
 
 ### Open items
-- ~~No hardware rig covers `mlkem_decaps_seed`~~ — closed on branch
-  `hw/decaps-seed-rig` (C64U, 1 MHz): `rig_kat --only seed` passes (84
-  checks); `rig_bench` gives 50,794,288 for the entry (== VICE, identical
-  for valid / bit-0 / bit-7 ciphertexts) and 72,597,538 for the seed-only
-  handshake (OVER the 40–70M budget, == VICE); proven against `seed-z-is-d`
-  and `seed-reject-skips-j`. Details in CLAUDE.md "Tests".
+- ~~No hardware rig covers `mlkem_decaps_seed`~~ — closed (C64U, 1 MHz):
+  `rig_kat --only seed` passes (84 checks); `rig_bench` gives 50,794,288 for
+  the entry (== VICE, identical for valid / bit-0 / bit-7 ciphertexts) and a
+  seed-only handshake sum of 72,597,538 (OVER the 40–70M budget); proven
+  against `seed-z-is-d`, `seed-reject-skips-j` and `seed-z-from-arg`.
+  Details in CLAUDE.md "Tests"; expected counts in `tools/kem_expect.py`.
 - **Constant-time is measured on one key only** (the cycle pins in
   `test_decaps_seed.py`), not across keys.
 - **`LIB_MLKEM_POLY_BSS` at `$D000` is verified at link only**, never run

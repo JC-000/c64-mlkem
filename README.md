@@ -338,8 +338,8 @@ ACVP ciphertexts, 6 random and 4 hazmat seeds).
 On hardware (`make rig-c64u`, tools/rig_*.py; a C64 Ultimate, fw 1.1.0, 1 MHz)
 the same entry passes the `seed` KAT group (84 checks) and measures exactly
 as in VICE: **50,794,288** cycles for valid, bit-0 and bit-7-modified
-ciphertexts, and **72,597,538** for KeyGen + `mlkem_decaps_seed` (over the
-40–70M budget there too).
+ciphertexts; KeyGen + `mlkem_decaps_seed` is the sum of two such counts,
+**72,597,538** (over the 40–70M budget).
 
 **Mutation gate.** Each work package's tests were written *first, by a
 different agent, from FIPS 203 and the oracle* — red against stubs before the
