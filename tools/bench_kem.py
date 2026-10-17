@@ -331,7 +331,7 @@ def main():
     # Exact, because VICE is cycle-deterministic: a drifted count means the
     # code changed (update tools/kem_expect.py and the README on purpose) or
     # the measurement is wrong. Never a rounding matter.
-    drift = [(k, results[k], v) for k, v in EXPECTED.items() if results.get(k) != v]
+    drift = [(k, results.get(k), v) for k, v in EXPECTED.items() if results.get(k) != v]
     print()
     if drift:
         for k, got, want in drift:

@@ -337,13 +337,20 @@ clean, and a second make runs nothing) are the regression guards.
   **Device choice.** The rigs run on whatever `U64_HOST` names: the bench
   U64E (10.43.23.81, the default) or the C64 Ultimate (C64U, fw 1.1.0,
   10.43.23.26; `make rig-c64u`, or `make rig U64_HOST=10.43.23.26`).
-  `rig-c64u` also sets `RIG_EXPECT_PRODUCT="C64 Ultimate"`, and the rig
-  refuses a device whose info call reports another product (set it yourself
-  when pointing `U64_HOST` anywhere else).
+  Use `rig-c64u` / `rig-c64u-full` / `rig-c64u-turbo` for the C64U: they set
+  `RIG_EXPECT_UID=5d2518`, checked from the harness' local alias map
+  (devices.toml) **before** the DeviceLock is taken (a `C64U_HOST` that is
+  really the U64E is refused without contacting it), and
+  `RIG_EXPECT_PRODUCT="C64 Ultimate"`, an exact match on the info call
+  afterwards. Either variable set but empty is an error. `make rig
+  U64_HOST=<ip>` is unguarded.
   **Expected counts live in one place, `tools/kem_expect.py`.** `make
   bench-kem` FAILS when a VICE count differs from it, and `rig_bench` imports
   the same table (it had drifted to v0.5.1 numbers unnoticed). Move a count
-  there on purpose, never to quiet a failure.
+  there on purpose, never to quiet a failure. (A scripted perturb-then-rerun
+  of that file needs `PYTHONDONTWRITEBYTECODE=1` or a cleared
+  `tools/__pycache__`: a same-size edit within one second can be served from
+  a stale `.pyc`.)
   **`mlkem_decaps_seed` on hardware (C64U, 1 MHz, 2026-10-16).**
   `rig_kat --only seed` (84 checks: [kgdec] / [acvpct] / [equiv] of
   `test_decaps_seed.py`, unchanged; the seed group took 807 s, the default
@@ -359,8 +366,9 @@ clean, and a second make runs nothing) are the regression guards.
   rejection-path case; the valid-ct cases still pass), `seed-reject-skips-j`
   (rig_bench: valid 47,701,547, tampered 50,794,295, a 3,092,748-cycle gap
   named as a CT failure) and `seed-z-from-arg` (rig_bench: both tampered-ct
-  outputs wrong, 3 of 3 runs each, exit 1; with the pointers left on the real
-  z it would have survived). The poll probe on the C64U read +110 / +218 cycles per
+  outputs wrong, 3 of 3 runs each, exit 1; that mutant also costs -4 cycles,
+  which the count pin catches at 1 MHz, and the decoys make the output check
+  catch it independent of timing, e.g. at turbo where no count is pinned). The poll probe on the C64U read +110 / +218 cycles per
   Keccak x8 (information only).
 - Honor `C64_SKIP_BUILD=1`.
 - Read addresses from `build/labels.txt` via the harness `Labels` class; never

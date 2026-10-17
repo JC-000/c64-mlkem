@@ -220,7 +220,7 @@ ARCHIVE_KECCAK = $(LIB_DIR)/mlkem-keccak.a
         check-manifest check-archives check-version check-staleness check-prefix check-sqtab-guard \
         check-harness-routing check-precalc check-manifest-selftest check-precalc-selftest \
         check-deps check-deps-rebuild check-deps-selftest \
-        vectors help rig rig-c64u rig-full rig-turbo
+        vectors help rig rig-c64u rig-c64u-full rig-c64u-turbo rig-full rig-turbo
 
 all: $(PRG)
 
@@ -552,12 +552,19 @@ bench-kem: $(PRG)
 # against the gate's wp3-cmp-mismatch-timing (rig_bench fails T1) and
 # wp3-cmp-acc-reset (rig_kat onebit fails) mutants on the U64E at 1 MHz.
 # The rigs run on whichever Ultimate U64_HOST names; the default is the bench
-# U64E. The C64 Ultimate (C64U, fw 1.1.0) is C64U_HOST: `make rig-c64u`, or
-# `make rig U64_HOST=10.43.23.26` (rig-full / rig-turbo take it the same way).
+# U64E. The C64 Ultimate (C64U, fw 1.1.0) is C64U_HOST: use the GUARDED
+# targets rig-c64u / rig-c64u-full / rig-c64u-turbo, which set
+# RIG_EXPECT_UID=5d2518 (checked from the harness' local alias map BEFORE the
+# device is locked or touched, so a C64U_HOST that is really the busy U64E is
+# refused without contacting it) and RIG_EXPECT_PRODUCT="C64 Ultimate"
+# (exact match on the info call after acquiring). `make rig U64_HOST=<any>`
+# still works but is UNGUARDED: the rig then drives whatever answers there.
 # They now also cover mlkem_decaps_seed: rig_kat's `seed` group and rig_bench's
 # seed legs (count == VICE, constant-time pin, seed-only handshake line).
 U64_HOST ?= 10.43.23.81
 C64U_HOST ?= 10.43.23.26
+C64U_UID ?= 5d2518
+C64U_GUARD = RIG_EXPECT_UID=$(C64U_UID) RIG_EXPECT_PRODUCT="C64 Ultimate"
 RIG_MHZ ?= 48
 
 rig: $(PRG)
@@ -565,7 +572,13 @@ rig: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
 
 rig-c64u: $(PRG)
-	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST) RIG_EXPECT_PRODUCT="C64 Ultimate"
+	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST) $(C64U_GUARD)
+
+rig-c64u-full: $(PRG)
+	@$(MAKE) --no-print-directory rig-full U64_HOST=$(C64U_HOST) $(C64U_GUARD)
+
+rig-c64u-turbo: $(PRG)
+	@$(MAKE) --no-print-directory rig-turbo U64_HOST=$(C64U_HOST) $(C64U_GUARD)
 
 rig-full: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full
@@ -604,7 +617,7 @@ help:
 	@echo "make bench-sampler  WP2 sampler/codec cycles + constant-time check"
 	@echo "make bench-kem    KeyGen/Encaps/Decaps + NTT cycles, Keccak share separated"
 	@echo "make rig         Ultimate hardware: KATs + cycle counts vs VICE at 1 MHz (U64_HOST=..., default the U64E)"
-	@echo "make rig-c64u    the same on the C64 Ultimate (C64U_HOST, default 10.43.23.26)"
+	@echo "make rig-c64u    the same on the C64 Ultimate (C64U_HOST), refusing any other device; also rig-c64u-full / rig-c64u-turbo"
 	@echo "make rig-full    Ultimate hardware: rig_kat --full at 1 MHz, then the cycle counts"
 	@echo "make rig-turbo   Ultimate hardware: every vector at RIG_MHZ turbo (default 48)"
 	@echo "make tables       regenerate src/keccak_tables.inc + src/mlkem_tables.inc"

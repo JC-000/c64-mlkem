@@ -18,7 +18,7 @@ group 807 s, 16 device calls).
 --full: all 820 ShortMsg vectors, 25 keyGen, 25 encaps, 10 decaps,
 10 ek checks, 5 onebit variants, all 10 decapsulationKeyCheck vectors, and the
 full `seed` group (25 seeds x 2, 10 cts, 6 random seeds: ~102 device calls,
-roughly 85 min of the seed group alone at ~50 s each).
+roughly 85 min for the seed group alone at ~50 s each).
 The streaming-property tests of test_sha3 are VICE-only (too many round trips).
 
 Usage:

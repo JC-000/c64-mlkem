@@ -414,8 +414,10 @@ def main():
             else:
                 print(f"  {name:17} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
                       f"   VICE {VICE['mlkem_decaps_seed']:,}   VICE/ticks {VICE['mlkem_decaps_seed'] / net:.4f}   {kind} (3/3)")
-        if args.mhz == 1 and "mlkem_keygen" in results and "seed valid c" in results:
-            # Sum of two counts already gated above; not extra evidence.
+        if (args.mhz == 1 and results.get("mlkem_keygen") == VICE["mlkem_keygen"]
+                and results.get("seed valid c") == VICE["mlkem_decaps_seed"]):
+            # Printed only when both terms passed their exact pin above; the
+            # sum is arithmetic on them, not extra evidence.
             hs = results["mlkem_keygen"] + results["seed valid c"]
             print(f"  seed-only handshake, keygen + decaps_seed = {results['mlkem_keygen']:,} + "
                   f"{results['seed valid c']:,} = {hs:,} cycles: "
