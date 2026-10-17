@@ -90,7 +90,11 @@ def main():
 
     build_if_needed()
 
-    rig = Rig(load_labels(0x6000, 0x8400), mhz=args.mhz)
+    try:
+        rig = Rig(load_labels(0x6000, 0x8400), mhz=args.mhz)
+    except RigError as e:
+        print(f"RigError: {e}")
+        return 1
     with rig:
         print("Calibration")
         # Even these short windows need a quiet host: the thunk spends up to

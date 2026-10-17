@@ -210,13 +210,30 @@ def check_host_uid(host, expect_uid):
     is refused too. No-op when expect_uid is None."""
     if expect_uid is None:
         return
-    from c64_test_harness.backends.device_aliases import configured_unique_id
-    from c64_test_harness.backends.device_lock import normalize_device_host
-    uid = configured_unique_id(normalize_device_host(host), normalize_device_host)
+    try:
+        from c64_test_harness.backends.device_aliases import (
+            DeviceAliasConfigError, aliases_file_path)
+        from c64_test_harness.backends.device_lock import normalize_device_host
+    except ImportError as e:
+        raise RigError(f"RIG_EXPECT_UID needs c64-test-harness >= 0.13.0 (the "
+                       f"device alias map); import failed: {e}; refusing to run")
+    # normalize_device_host folds a listed spelling to its canonical
+    # 'uid-<id>' key and returns any other spelling unchanged.
+    try:
+        key = normalize_device_host(host)
+    except DeviceAliasConfigError as e:
+        raise RigError(f"harness device alias configuration is broken ({e}); "
+                       f"cannot verify {host} as unique_id {expect_uid!r}; "
+                       f"refusing to run")
+    uid = key[len("uid-"):] if key.startswith("uid-") else None
     if uid is None:
-        raise RigError(f"{host} is not listed in the harness device alias map "
-                       f"(devices.toml), so it cannot be verified as unique_id "
-                       f"{expect_uid!r} before locking; refusing to run")
+        path = aliases_file_path()
+        why = ("the alias file " + str(path) + (" is missing" if not path.exists()
+               else " does not list it"))
+        raise RigError(f"{host} is not in the harness device alias map ({why}; "
+                       f"set C64_DEVICE_ALIASES_FILE to relocate it), so it cannot "
+                       f"be verified as unique_id {expect_uid!r} before locking; "
+                       f"refusing to run")
     if uid.lower() != expect_uid.lower():
         raise RigError(f"{host} is device {uid!r} in the harness alias map, "
                        f"expected {expect_uid!r}; refusing to run")

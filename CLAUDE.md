@@ -336,13 +336,15 @@ clean, and a second make runs nothing) are the regression guards.
   valid key K' returned for a one-bit c1 tamper).
   **Device choice.** The rigs run on whatever `U64_HOST` names: the bench
   U64E (10.43.23.81, the default) or the C64 Ultimate (C64U, fw 1.1.0,
-  10.43.23.26; `make rig-c64u`, or `make rig U64_HOST=10.43.23.26`).
+  10.43.23.26; use the guarded `make rig-c64u` family below).
   Use `rig-c64u` / `rig-c64u-full` / `rig-c64u-turbo` for the C64U: they set
   `RIG_EXPECT_UID=5d2518`, checked from the harness' local alias map
   (devices.toml) **before** the DeviceLock is taken (a `C64U_HOST` that is
   really the U64E is refused without contacting it), and
   `RIG_EXPECT_PRODUCT="C64 Ultimate"`, an exact match on the info call
-  afterwards. Either variable set but empty is an error. `make rig
+  afterwards. Either variable set but empty is an error. The uid guard needs
+  `c64-test-harness` >= 0.13.0 (`device_aliases`), a missing or broken
+  alias file refuses to run, and an unlisted host is refused. `make rig
   U64_HOST=<ip>` is unguarded.
   **Expected counts live in one place, `tools/kem_expect.py`.** `make
   bench-kem` FAILS when a VICE count differs from it, and `rig_bench` imports

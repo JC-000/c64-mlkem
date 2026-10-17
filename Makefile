@@ -564,7 +564,6 @@ bench-kem: $(PRG)
 U64_HOST ?= 10.43.23.81
 C64U_HOST ?= 10.43.23.26
 C64U_UID ?= 5d2518
-C64U_GUARD = RIG_EXPECT_UID=$(C64U_UID) RIG_EXPECT_PRODUCT="C64 Ultimate"
 RIG_MHZ ?= 48
 
 rig: $(PRG)
@@ -572,13 +571,13 @@ rig: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
 
 rig-c64u: $(PRG)
-	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST) $(C64U_GUARD)
+	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST) RIG_EXPECT_UID=$(C64U_UID) RIG_EXPECT_PRODUCT="C64 Ultimate"
 
 rig-c64u-full: $(PRG)
-	@$(MAKE) --no-print-directory rig-full U64_HOST=$(C64U_HOST) $(C64U_GUARD)
+	@$(MAKE) --no-print-directory rig-full U64_HOST=$(C64U_HOST) RIG_EXPECT_UID=$(C64U_UID) RIG_EXPECT_PRODUCT="C64 Ultimate"
 
 rig-c64u-turbo: $(PRG)
-	@$(MAKE) --no-print-directory rig-turbo U64_HOST=$(C64U_HOST) $(C64U_GUARD)
+	@$(MAKE) --no-print-directory rig-turbo U64_HOST=$(C64U_HOST) RIG_EXPECT_UID=$(C64U_UID) RIG_EXPECT_PRODUCT="C64 Ultimate"
 
 rig-full: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full
