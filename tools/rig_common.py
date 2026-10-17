@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rig_common.py — the hardware half of the rig_*.py suites (U64E).
+"""rig_common.py — the hardware half of the rig_*.py suites (U64E or C64U).
 
 Imported by tools/rig_kat.py and tools/rig_bench.py; not a runnable rig
 itself. Everything device-facing lives here so the two rigs cannot drift apart
@@ -192,7 +192,7 @@ def load_labels(scratch_lo, scratch_hi):
 
 
 class Rig:
-    """One locked U64E session with build/mlkem.prg running under the
+    """One locked Ultimate session (U64E or C64U, whichever U64_HOST names) with build/mlkem.prg running under the
     dispatcher. Use as a context manager.
 
     mhz=1 is stock speed (and the measurement environment is checked);
@@ -206,7 +206,7 @@ class Rig:
         self.lock_timeout = lock_timeout
         self.host = os.environ.get("U64_HOST")
         if not self.host:
-            raise RigError("U64_HOST is not set (the bench U64E is 10.43.23.81)")
+            raise RigError("U64_HOST is not set (the bench U64E is 10.43.23.81, the C64 Ultimate 10.43.23.26)")
         self._mgr = self._ctx = self.target = self.t = None
         self.snap = None
         self.info = {}
@@ -226,7 +226,7 @@ class Rig:
             client = self.target.client
             self.info = client.get_info()
             self.snap = snapshot_state(client)
-            print(f"U64: {self.info.get('product')} fw {self.info.get('firmware_version')} "
+            print(f"Device {self.host}: {self.info.get('product')} fw {self.info.get('firmware_version')} "
                   f"fpga {self.info.get('fpga_version')} core {self.info.get('core_version')}")
             print(f"  speed state at entry: CPU Speed={self.snap.cpu_speed!r} "
                   f"Turbo Control={self.snap.turbo_control!r} "

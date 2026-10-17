@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""rig_kat.py — Known-answer tests for c64-mlkem on Ultimate 64 Elite hardware.
+"""rig_kat.py — Known-answer tests for c64-mlkem on Ultimate hardware (U64E or C64U).
 
 Runs the vetted SHA-3 and ML-KEM suites from tools/test_sha3.py and
 tools/test_mlkem.py against real device output via the dispatcher rig.
-Requires U64_HOST to be set and a connected U64E. Not part of `make test`.
+Requires U64_HOST to be set (the bench U64E is 10.43.23.81; the C64 Ultimate
+is 10.43.23.26). Not part of `make test`.
 
-Default depth (~5 min at 1 MHz): the test_sha3 ShortMsg subset (rate
+Default depth: the test_sha3 ShortMsg subset (rate
 boundaries + sample) and a VariableOut sample, 2 keyGen, 2 encaps (one on odd
 addresses), 1 valid + 1 modified-ciphertext decaps, 1 rejected + 1 valid ek
-check, 2 onebit (byte 0 in c1, byte 1087 in c2), 1 decapsulationKeyCheck.
+check, 2 onebit (byte 0 in c1, byte 1087 in c2), 1 decapsulationKeyCheck,
+and the `seed` group (mlkem_decaps_seed, ~50 s per call at 1 MHz): 2 ACVP
+keyGen seeds x (valid + modified ct), 2 ACVP decapsulation cts under tcId 1's
+seed, 2 random seeds checked against mlkem_keygen -> mlkem_decaps run on the
+device. Default depth is therefore ~15 min at 1 MHz.
 --full: all 820 ShortMsg vectors, 25 keyGen, 25 encaps, 10 decaps,
-10 ek checks, 5 onebit variants, all 10 decapsulationKeyCheck vectors.
+10 ek checks, 5 onebit variants, all 10 decapsulationKeyCheck vectors, and the
+full `seed` group (25 seeds x 2, 10 cts, 6 random seeds: ~75 more calls).
 The streaming-property tests of test_sha3 are VICE-only (too many round trips).
 
 Usage:
-    U64_HOST=10.43.23.81 python3 tools/rig_kat.py [--full] [--mhz N]
-        [--only sha3,keygen,encaps,decaps,onebit,ekcheck,dkcheck]
+    U64_HOST=<device ip> python3 tools/rig_kat.py [--full] [--mhz N]
+        [--only sha3,keygen,encaps,decaps,onebit,ekcheck,dkcheck,seed]
 Honors C64_SKIP_BUILD=1 and MLKEM_BUILD_DIR (see rig_common.py).
 """
 
@@ -27,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import test_sha3 as S
 import test_mlkem as T
+import test_decaps_seed as DS
 from rig_common import build_if_needed, load_labels, Rig, RigError
 from c64_test_harness import write_bytes, read_bytes
 
@@ -71,6 +78,11 @@ class RigC64(T.C64):
         return (a, status)
 
 
+class RigSeed(RigC64, DS.Seed):
+    """test_decaps_seed's driver (decaps_seed(), run_case()) with the call
+    path replaced by the dispatcher: RigC64.call comes first in the MRO."""
+
+
 def main():
     full = "--full" in sys.argv
     mhz = 1
@@ -93,14 +105,14 @@ def main():
             print("Missing value for --only", file=sys.stderr)
             return 1
 
-    valid_only = {"sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck"}
+    valid_only = {"sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck", "seed"}
     if only is not None:
         for name in only:
             if name not in valid_only:
                 print(f"Unknown suite: {name}", file=sys.stderr)
                 return 2
     if only is None:
-        only = ["sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck"]
+        only = ["sha3", "keygen", "encaps", "decaps", "onebit", "ekcheck", "dkcheck", "seed"]
 
     if not T.self_check_model():
         print("FATAL: self_check_model failed")
@@ -112,7 +124,7 @@ def main():
     SCRATCH_HI = 0x8000
     labels = load_labels(SCRATCH_LO, SCRATCH_HI)
 
-    for name in T.REQUIRED_LABELS:
+    for name in T.REQUIRED_LABELS + ([DS.ENTRY] if "seed" in only else []):
         if name.startswith("mlkem_kpke_"):
             continue
         if labels.address(name) is None:
@@ -195,12 +207,27 @@ def main():
                 if ek_checks == 0:
                     T._fails.append("ekcheck suite added zero checks")
 
+            if "seed" in only:
+                # mlkem_decaps_seed (v0.6.0): the [kgdec] / [acvpct] / [equiv]
+                # suites of test_decaps_seed.py, unchanged, on the device.
+                # Not run here: [hazmat] and [decoys] (VICE-only, like the
+                # sha3 streaming properties) and [timing] (rig_bench has it).
+                c64 = RigSeed(rig)
+                t0 = time.time()
+                pre_ds = DS._checks
+                for suite in (DS.suite_kgdec, DS.suite_acvpct, DS.suite_equiv):
+                    suite(c64, full)
+                ds_checks = DS._checks - pre_ds
+                print(f"[seed] {ds_checks} checks in {time.time()-t0:.1f}s")
+                if ds_checks == 0:
+                    DS._fails.append("seed suite added zero checks")
+
     except RigError as e:
         print(f"RigError: {e}")
         return 1
 
-    total_fails = S._fails + T._fails
-    total_checks = S._checks + T._checks
+    total_fails = S._fails + T._fails + DS._fails
+    total_checks = S._checks + T._checks + DS._checks
 
     print(f"\nSummary: {total_checks} checks, {len(total_fails)} failures ({mhz} MHz)")
     if total_fails:

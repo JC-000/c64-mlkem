@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rig_bench.py — cycle-exact cost of Keccak-f[1600] and ML-KEM-768 on Ultimate 64 Elite.
+"""rig_bench.py — cycle-exact cost of Keccak-f[1600] and ML-KEM-768 on Ultimate hardware (U64E or C64U).
 
 Measures the exact cycle count of the 6502 code using the CIA1 Timer A+B
 chained 32-bit phi2 down-counter. At stock speed (1 MHz), the count must
@@ -8,7 +8,7 @@ window blanks the display and syncs two frames (eliminating badline DMA
 variations), masks IRQs inside the window, and runs on a deterministic
 CPU cycle count independent of PAL/NTSC timing.
 
-HOST POLLS STEAL CYCLES ON THE U64E. Measured: Keccak x8 polled every 5 ms
+HOST POLLS STEAL CYCLES ON THE ULTIMATE (measured on the U64E). Measured: Keccak x8 polled every 5 ms
 inside its window read +1,597 / +1,612 / +2,156 cycles over the quiet
 2,717,504, and not reproducibly. So every measurement is started and then
 left alone for 1.05x its expected duration + 0.5 s before the first
@@ -22,7 +22,7 @@ while the CPU runs faster, so the counts are ticks, not CPU cycles; the rig
 then asserts only output correctness and reproducibility, and prints the
 VICE/ticks ratio as information.
 
-Requires U64_HOST (the bench U64E is 10.43.23.81); not part of `make test`.
+Requires U64_HOST (the bench U64E is 10.43.23.81, the C64 Ultimate 10.43.23.26); not part of `make test`.
 Usage: python3 tools/rig_bench.py [--mhz N] [--keccak-only]
 Honors C64_SKIP_BUILD=1 and MLKEM_BUILD_DIR (see rig_common.py).
 """
@@ -43,9 +43,11 @@ from c64_test_harness import read_bytes, write_bytes
 
 VICE_KECCAK = 339_688
 VICE = {
-    "mlkem_keygen": 21_801_702,
-    "mlkem_encaps": 24_880_455,
-    "mlkem_decaps": 29_597_879,
+    # v0.6.0 link (README "Phase 2: measured"; `make bench-kem`).
+    "mlkem_keygen": 21_803_250,
+    "mlkem_encaps": 24_882_439,
+    "mlkem_decaps": 29_600_503,
+    "mlkem_decaps_seed": 50_794_288,
 }
 PAL_HZ = 985_248
 CAL_QUIET_S = 0.2       # > 3 PAL frames of bench_sync_frame + the window
@@ -327,6 +329,82 @@ def main():
                     print(f"  {name:15} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
                           f"   valid {results['mlkem_decaps']:,}   diff {net - results['mlkem_decaps']:+,}   {'CONSTANT-TIME' if net == results['mlkem_decaps'] else 'INFO'}")
 
+        if not failed:
+            # mlkem_decaps_seed (v0.6.0): keygen tcId 1's d||z with a valid
+            # ct to its ek (bench_kem's input), then the same two bit-flipped
+            # cts as the decaps pin. Outputs are checked on every timed run:
+            # the valid K from the ACVP-pinned model, the flipped ones
+            # against J(z||c') (implicit rejection).
+            k_ds, c_ds = M.mlkem_encaps(bytes.fromhex(kg["ek"]), m_en)
+            if k_ds != M.mlkem_decaps(bytes.fromhex(kg["dk"]), c_ds):
+                print("FATAL: model decaps(dk, c_ds) != encaps K")
+                return 1
+            c_bad1 = bytearray(c_ds)
+            c_bad1[0] ^= 1
+            c_bad2 = bytearray(c_ds)
+            c_bad2[1087] ^= 1 << 7
+            print("\nmlkem_decaps_seed (keygen tcId 1's d||z; ct = Encaps(its ek, encaps tcId 1's m))")
+            ds_valid = None
+            for name, ct_ds, want_k in [
+                ("seed valid c", bytes(c_ds), k_ds),
+                ("seed c1 bit 0", bytes(c_bad1), M.J(z + bytes(c_bad1))),
+                ("seed c2 bit 7", bytes(c_bad2), M.J(z + bytes(c_bad2))),
+            ]:
+                if want_k == k_ds and ct_ds != bytes(c_ds):
+                    print(f"  FATAL: expected key for {name} matches valid key")
+                    return 1
+
+                def setup_ds(ct=ct_ds):
+                    write_bytes(rig.t, BUF_SEED, d + z)
+                    write_bytes(rig.t, BUF_CT, ct)
+                    write_bytes(rig.t, BUF_KEY, bytes([0xEE] * 32))
+                    rig.ptr("mlkem_arg_seed", BUF_SEED)
+                    rig.ptr("mlkem_arg_ct", BUF_CT)
+                    rig.ptr("mlkem_arg_key", BUF_KEY)
+
+                runs = {"ok": 0, "bad": 0}
+
+                def after_ds(want=want_k, runs=runs):
+                    runs["ok" if read_bytes(rig.t, BUF_KEY, 32) == want else "bad"] += 1
+
+                kind = "K == Encaps K" if want_k == k_ds else "K == J(z||c')"
+                q = VICE["mlkem_decaps_seed"] / PAL_HZ / args.mhz * 1.05 + 0.5
+                v, st, vals = measure_stable(rig, "mlkem_decaps_seed", tries=2, setup=setup_ds,
+                                             quiet_s=q, cadence=0.5, timeout=300.0,
+                                             after=after_ds)
+                net = v - overhead
+                if runs["bad"] or runs["ok"] != 3:
+                    print(f"  FAIL {name}: K wrong in {runs['bad']} of {runs['ok'] + runs['bad']} runs "
+                          f"({kind} expected); count withheld")
+                    failed = True
+                    continue
+                if not st:
+                    print(f"  FAIL {name}: not reproducible {[x - overhead for x in vals]}")
+                    failed = True
+                    continue
+                results[name] = net
+                if args.mhz == 1:
+                    if name == "seed valid c":
+                        ds_valid = net
+                        ok = net == VICE["mlkem_decaps_seed"]
+                        print(f"  mlkem_decaps_seed {net:>12,} cycles   VICE {VICE['mlkem_decaps_seed']:>12,}"
+                              f"   diff {net - VICE['mlkem_decaps_seed']:+,}   {kind} (3/3)   {'EXACT' if ok else 'FAIL'}")
+                    else:
+                        ok = ds_valid is not None and net == ds_valid
+                        print(f"  {name:17} {net:>12,} cycles   valid {ds_valid or 0:>12,}"
+                              f"   diff {net - (ds_valid or 0):+,}   {kind} (3/3)   "
+                              f"{'CONSTANT-TIME' if ok else 'FAIL (decaps_seed time depends on c)'}")
+                    failed |= not ok
+                else:
+                    print(f"  {name:17} {net:>12,} CIA ticks at {args.mhz} MHz turbo (not CPU cycles)"
+                          f"   VICE {VICE['mlkem_decaps_seed']:,}   VICE/ticks {VICE['mlkem_decaps_seed'] / net:.4f}   {kind} (3/3)")
+            if not failed and args.mhz == 1 and "mlkem_keygen" in results:
+                hs = results["mlkem_keygen"] + results["seed valid c"]
+                vice_hs = VICE["mlkem_keygen"] + VICE["mlkem_decaps_seed"]
+                print(f"  seed-only handshake, keygen + decaps_seed = {results['mlkem_keygen']:,} + "
+                      f"{results['seed valid c']:,} = {hs:,} cycles (VICE {vice_hs:,}, diff {hs - vice_hs:+,}); "
+                      f"{'OVER' if hs > 70_000_000 else 'inside'} the 40-70M budget")
+
         if failed:
             print("\nFAIL: see above.")
             return 1
@@ -353,6 +431,10 @@ def main():
                     ref = results["mlkem_decaps"]
                     diff = net - ref
                     print(f"  {name:<15} {net:>12,} {ref:>12,} {diff:>12,}")
+            for name in ("seed valid c", "seed c1 bit 0", "seed c2 bit 7"):
+                if name in results:
+                    ref = VICE["mlkem_decaps_seed"]
+                    print(f"  {name:<15} {results[name]:>12,} {ref:>12,} {results[name] - ref:>12,}")
         print("-" * 60)
         return 0
 
