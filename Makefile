@@ -565,7 +565,7 @@ rig: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_bench.py
 
 rig-c64u: $(PRG)
-	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST)
+	@$(MAKE) --no-print-directory rig U64_HOST=$(C64U_HOST) RIG_EXPECT_PRODUCT="C64 Ultimate"
 
 rig-full: $(PRG)
 	@C64_SKIP_BUILD=1 U64_HOST=$(U64_HOST) $(PYTHON) $(TOOLS_DIR)/rig_kat.py --full

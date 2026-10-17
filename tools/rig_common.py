@@ -212,6 +212,9 @@ class Rig:
         self.info = {}
         self._thunk = None
         self.restore_failed = False
+        # RIG_EXPECT_PRODUCT (e.g. "C64 Ultimate", set by `make rig-c64u`):
+        # refuse to drive a device whose info call names another product.
+        self.expect_product = os.environ.get("RIG_EXPECT_PRODUCT") or None
 
     # --- session -----------------------------------------------------------
 
@@ -225,6 +228,9 @@ class Rig:
             self.t = self.target.transport
             client = self.target.client
             self.info = client.get_info()
+            if self.expect_product and self.expect_product not in str(self.info.get("product")):
+                raise RigError(f"{self.host} reports product {self.info.get('product')!r}, "
+                               f"expected {self.expect_product!r}; refusing to run")
             self.snap = snapshot_state(client)
             print(f"Device {self.host}: {self.info.get('product')} fw {self.info.get('firmware_version')} "
                   f"fpga {self.info.get('fpga_version')} core {self.info.get('core_version')}")

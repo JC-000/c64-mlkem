@@ -11,12 +11,14 @@ boundaries + sample) and a VariableOut sample, 2 keyGen, 2 encaps (one on odd
 addresses), 1 valid + 1 modified-ciphertext decaps, 1 rejected + 1 valid ek
 check, 2 onebit (byte 0 in c1, byte 1087 in c2), 1 decapsulationKeyCheck,
 and the `seed` group (mlkem_decaps_seed, ~50 s per call at 1 MHz): 2 ACVP
-keyGen seeds x (valid + modified ct), 2 ACVP decapsulation cts under tcId 1's
-seed, 2 random seeds checked against mlkem_keygen -> mlkem_decaps run on the
-device. Default depth is therefore ~15 min at 1 MHz.
+keyGen seeds x (valid + modified ct), 2 ACVP decapsulation cts under keyGen
+tcId 26's seed, 2 random seeds checked against mlkem_keygen -> mlkem_decaps run on the
+device. Measured on the C64U at 1 MHz: ~23 min in all (1,382 s; the seed
+group 807 s, 16 device calls).
 --full: all 820 ShortMsg vectors, 25 keyGen, 25 encaps, 10 decaps,
 10 ek checks, 5 onebit variants, all 10 decapsulationKeyCheck vectors, and the
-full `seed` group (25 seeds x 2, 10 cts, 6 random seeds: ~75 more calls).
+full `seed` group (25 seeds x 2, 10 cts, 6 random seeds: ~102 device calls,
+roughly 85 min of the seed group alone at ~50 s each).
 The streaming-property tests of test_sha3 are VICE-only (too many round trips).
 
 Usage:

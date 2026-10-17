@@ -19,12 +19,12 @@ What is measured:
   mlkem_poly_ntt / _intt / _basemul
                                  one call each on a random polynomial
   mlkem_keygen / mlkem_encaps / mlkem_decaps
-                                 ACVP vector tcId 1 of each group (keygen d,z;
+                                 the first ACVP vector of each group (keygen d,z;
                                  encaps ek,m; decaps dk,c) — the same inputs
                                  tools/test_mlkem.py --full reports, so the
                                  two must agree to the cycle
-  mlkem_decaps_seed              keygen tcId 1's d||z with c = Encaps(its ek,
-                                 encaps tcId 1's m), next to mlkem_decaps on
+  mlkem_decaps_seed              keygen tcId 26's d||z with c = Encaps(its ek,
+                                 the first encaps vector's m), next to mlkem_decaps on
                                  KeyGen(d,z).dk and the same c — the two-call
                                  path it replaces, on identical inputs
 
@@ -48,6 +48,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mlkem_ref as M
+from kem_expect import EXPECTED
 from bench_keccak import measure_stable, SPIN_EXPECTED
 from c64_test_harness import (
     Labels, ViceConfig, ViceInstanceManager, read_bytes, write_bytes, jsr,
@@ -247,7 +248,7 @@ def main():
             write_bytes(t, BUF_DK, dk_de); write_bytes(t, BUF_CT, c_de)
             args(dk=BUF_DK, ct=BUF_CT, key=BUF_KEY)
 
-        print("\nML-KEM-768 (ACVP tcId 1 inputs)")
+        print("\nML-KEM-768 (first ACVP vector of each group)")
         bench("mlkem_keygen", "mlkem_keygen", setup_kg)
         # The measured call's outputs are still in the buffers: check them so
         # a number is never reported for a call that computed the wrong thing.
@@ -268,7 +269,7 @@ def main():
             write_bytes(t, BUF_DK, dk_kg); write_bytes(t, BUF_CT, c_ds)
             args(dk=BUF_DK, ct=BUF_CT, key=BUF_KEY)
 
-        print("\nmlkem_decaps_seed vs the two-call path (keygen tcId 1's seed, one valid c)")
+        print("\nmlkem_decaps_seed vs the two-call path (keygen tcId 26's seed, one valid c)")
         bench("mlkem_decaps_seed", "mlkem_decaps_seed", setup_ds)
         ok_ds = read_bytes(t, BUF_KEY, 32) == expected["mlkem_decaps_seed"][0]
         bench("decaps (same c)", "mlkem_decaps", setup_de_same)
@@ -326,6 +327,19 @@ def main():
     print(f"  keygen + decaps_seed = {kg_c:,} + {ds:,} = {hs:,} cycles "
           f"({hs / 1_022_727:.1f} s at 1.023 MHz): {hs_where} the {lo // 1_000_000}-{hi // 1_000_000}M budget, "
           f"{hs - (kg_c + de_same):+,} against keygen + decaps holding dk")
+
+    # Exact, because VICE is cycle-deterministic: a drifted count means the
+    # code changed (update tools/kem_expect.py and the README on purpose) or
+    # the measurement is wrong. Never a rounding matter.
+    drift = [(k, results[k], v) for k, v in EXPECTED.items() if results.get(k) != v]
+    print()
+    if drift:
+        for k, got, want in drift:
+            print(f"  EXPECTED-COUNT MISMATCH {k}: measured {got if got is None else format(got, ',')}, "
+                  f"tools/kem_expect.py {want:,} ({'n/a' if got is None else format(got - want, '+,')})")
+        print("FAIL: measured counts differ from tools/kem_expect.py.")
+        return 1
+    print(f"  all {len(EXPECTED)} tracked counts equal tools/kem_expect.py")
     return 0
 
 
