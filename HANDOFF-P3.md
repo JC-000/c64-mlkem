@@ -118,16 +118,10 @@ assumed.
     and runs `make test` plus `make test-mutants`.
   - Surviving checker mutants go back to the red author.
   - The PR opens only after an accept verdict.
-- **Local model:** use the local model (Qwen3.6 on the lab box) for drafting,
-  always with a Claude reviewer.
-  - Call it as `LA_KEY_ID=kcb3b03f1
-    /Users/someone/Documents/ebullientprism/tools/local-agent/invoke.sh`.
-    The key is this repo's own, read from the Keychain; never echo it.
-  - Set `LA_MAX_TOKENS` ≥ 16384, because it is a reasoning model.
-  - There is no concurrency cap (the server queues); set a generous
-    `LA_TIMEOUT`. Haiku is the fallback.
-  - Qwen reliably gets mechanics right, but loses or **invents** facts when it
-    adapts text or lacks context, and never says so. Review every line.
+- **Local model:** the local-model lane was retired on 2026-10-17; do not
+  call invoke.sh or use the kcb3b03f1 key. Lesson kept for any drafter
+  model: it can get mechanics right but lose or **invent** facts when it
+  adapts text, and never say so. Review every line.
 - **Parallel VICE is fine:** up to 10 instances via c64-test-harness 0.12.4.
   Never run two `make`s in one build tree.
 - **U64E:** available, and all access goes through the harness device queue.
