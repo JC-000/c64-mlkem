@@ -119,8 +119,10 @@ ALL_CA65FLAGS  = $(BASE_CA65FLAGS) $(CA65FLAGS) $(CONTRACT_DEFINES)
 # Python for the test tooling. The fleet's shared venv carries
 # c64_test_harness (the system python3 does not), but fall back to plain
 # python3 so a clone on any other machine still runs `make test-ref` — that
-# target is pure stdlib and needs no harness.
-FLEET_VENV := /Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3
+# target is pure stdlib and needs no harness. The venv is looked up beside
+# the MAIN checkout (via the git common dir, like CONTRACT_DIR below), so it
+# resolves from a git worktree too; override with `make FLEET_VENV=...`.
+FLEET_VENV := $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../../c64-ChaCha20-Poly1305/.venv/bin/python3)
 PYTHON ?= $(shell [ -x $(FLEET_VENV) ] && echo $(FLEET_VENV) || command -v python3)
 
 # --- object sets ------------------------------------------------------------
