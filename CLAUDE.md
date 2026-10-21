@@ -389,8 +389,12 @@ clean, and a second make runs nothing) are the regression guards.
   test`, `tools/check_harness_routing.sh`) fails the build the moment a tool
   adds a bypass. A deliberate, reviewed exception widens that guard's regex in
   the same commit.
-- Use the venv interpreter at
-  `/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3`.
+- Use the central C64 harness venv,
+  `~/.local/share/c64-harness/venv/bin/python` (the Makefile's `FLEET_VENV`).
+  It is shared by every C64 repo on the host and carries no version pins; it
+  is owned by the `new-computer-setup` repo (`toolchain-brew/harness-venv.txt`),
+  so add shared test packages there, not with an ad-hoc `pip install`. Do not
+  recreate a per-repo `.venv`.
 - Keep the default suite fast; put exhaustive runs behind a flag. VICE
   round-trips dominate, so a vector count that is trivial in Python is not
   trivial under the emulator. `make test` (default depth) is ~90 s of VICE;

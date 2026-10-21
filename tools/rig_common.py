@@ -72,7 +72,6 @@ BUILD_DIR = os.environ.get("MLKEM_BUILD_DIR") or os.path.join(PROJECT_ROOT, "bui
 PRG_PATH = os.path.join(BUILD_DIR, "mlkem.prg")
 LABELS_PATH = os.path.join(BUILD_DIR, "labels.txt")
 VECTOR_DIR = os.path.join(PROJECT_ROOT, "tools", "vectors")
-PYTHON_VENV = "/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3"
 
 # The rig page: dispatcher, thunk and mailbox. Above the image (__MAIN_LAST__
 # is checked against it), below the vector scratch at $5000.

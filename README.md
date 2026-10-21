@@ -636,11 +636,12 @@ VICE suites may run in parallel (the harness allocates monitor ports under a
 cross-process lock), but never run two `make`s in one build tree — they share
 `build/`.
 
-Tests use the shared venv interpreter, since the system `python3` lacks the
-harness:
+Tests use the central C64 harness venv, since the system `python3` lacks the
+harness and `cryptography` (`make` finds it by itself; override with
+`make FLEET_VENV=...`):
 
 ```sh
-/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3 tools/test_keccak_ref.py
+~/.local/share/c64-harness/venv/bin/python tools/test_keccak_ref.py
 ```
 
 `C64_SKIP_BUILD=1` makes a test reuse the existing binary instead of rebuilding.
