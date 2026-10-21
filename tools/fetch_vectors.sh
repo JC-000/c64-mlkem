@@ -26,7 +26,7 @@ CAVP="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validati
 ACVP_COMMIT="975de31eb83d87039ec88934fdc47d8c312b892d"
 ACVP_RAW="https://raw.githubusercontent.com/usnistgov/ACVP-Server/$ACVP_COMMIT/gen-val/json-files"
 
-FLEET_VENV=/Users/someone/Documents/c64-ChaCha20-Poly1305/.venv/bin/python3
+FLEET_VENV="${FLEET_VENV:-$HOME/.local/share/c64-harness/venv/bin/python}"
 if [ -x "$FLEET_VENV" ]; then PYTHON="$FLEET_VENV"; else PYTHON="$(command -v python3)"; fi
 
 FORCE=0
